@@ -123,7 +123,6 @@ private struct SettingsContent: View {
   let destination: SettingsDestination
 
   private let shortcuts: [(String, String)] = [
-    ("Summon Composer", "⌃⌥Space"),
     ("Compile board", "⌘R"),
     ("New board", "⌘N"),
     ("Navigate boards", "⌘[  ⌘]"),
@@ -135,6 +134,7 @@ private struct SettingsContent: View {
 
   @StateObject private var appIcons = AppIconStore()
   @ObservedObject private var capabilities = EngineCapabilityStore.shared
+  @ObservedObject private var shortcutStore = ShortcutStore.shared
   @AppStorage(EnginePreferences.claudeEnabledKey) private var claudeEnabled = true
   @AppStorage(EnginePreferences.codexEnabledKey) private var codexEnabled = true
   @AppStorage(ComposerPreferences.panelTransparencyKey) private var panelTransparency = ComposerPreferences.defaultPanelTransparency
@@ -522,6 +522,20 @@ private struct SettingsContent: View {
       }
 
       VStack(spacing: 7) {
+        // The summon hotkey is user-configurable (records into ShortcutStore, which HotKeyManager
+        // re-binds); the rest are fixed in-app commands shown for reference.
+        HStack(spacing: 10) {
+          Text("Summon Composer")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(Theme.Palette.body)
+            .lineLimit(1)
+          Spacer(minLength: 8)
+          ShortcutRecorder(store: shortcutStore)
+        }
+        .padding(.horizontal, 13)
+        .frame(minHeight: 46)
+        .settingsCard()
+
         ForEach(shortcuts, id: \.0) { title, key in
           HStack(spacing: 10) {
             Text(title)
