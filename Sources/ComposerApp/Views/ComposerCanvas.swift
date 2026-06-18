@@ -16,6 +16,7 @@ struct ComposerCanvas: View {
   @State private var lastViewportSize: CGSize = .zero
   @State private var selectionRect: CGRect?
   @State private var freehandDraft: [CGPoint]?
+  @State private var elementDraft: DragSegment?
   @State private var isSpacePressed = false
   @State private var viewportThrottle = ViewportEventThrottle()
 
@@ -152,6 +153,15 @@ struct ComposerCanvas: View {
       .onReceive(NotificationCenter.default.publisher(for: .composerEnterEditing)) { _ in
         enterEditingForEntry()
       }
+      .onReceive(NotificationCenter.default.publisher(for: .composerSelectTool)) { note in
+        if let index = note.userInfo?["index"] as? Int { selectTool(index: index) }
+      }
+  }
+
+  private func selectTool(index: Int) {
+    let order: [CanvasTool] = [.select, .text, .rectangle, .ellipse, .diamond, .line, .arrow, .freehand]
+    guard index >= 1, index <= order.count else { return }
+    tool = order[index - 1]
   }
 
   private func boardContent(viewportSize: CGSize) -> some View {
@@ -160,10 +170,14 @@ struct ComposerCanvas: View {
         tool: tool,
         isSpacePressed: isSpacePressed,
         onTap: handleTap,
+        onDoubleTap: handleDoubleTap,
         onSelectionChanged: { selectionRect = $0 },
         onSelectionEnded: selectCards(inViewportRect:modifiers:),
         onFreehandChanged: { freehandDraft = $0 },
         onFreehandEnded: commitFreehandDraft,
+        onElementDraftChanged: { start, current in elementDraft = DragSegment(start: start, end: current) },
+        onElementDraftEnded: commitElementDraft,
+        onElementDraftCancelled: { elementDraft = nil },
         onPanChanged: { panLive = $0 },
         onPanEnded: { delta in
           pan.width += delta.width
@@ -196,8 +210,17 @@ struct ComposerCanvas: View {
 
       selectionRectView
       freehandDraftView
+      elementDraftView
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+  }
+
+  @ViewBuilder
+  private var elementDraftView: some View {
+    if let draft = elementDraft, let kind = tool.elementKind {
+      ElementDraftPreview(kind: kind, start: draft.start, end: draft.end)
+        .allowsHitTesting(false)
+    }
   }
 
   @ViewBuilder
@@ -243,6 +266,23 @@ struct ComposerCanvas: View {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
         board.interaction(for: id).controller.focus()
       }
+    }
+  }
+
+  /// Double-clicking empty canvas drops a text element there and starts editing — the default
+  /// "just start writing" gesture, regardless of the active tool.
+  private func handleDoubleTap(at point: CGPoint) {
+    let id = board.addCard(at: boardPoint(forViewport: point))
+    tool = .select
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { board.interaction(for: id).controller.focus() }
+  }
+
+  /// Commit a shape/line drawn by dragging from `start` to `end` (viewport space → board space).
+  private func commitElementDraft(_ start: CGPoint, _ end: CGPoint) {
+    defer { elementDraft = nil }
+    guard let kind = tool.elementKind else { return }
+    if board.addDrawnElement(kind, from: boardPoint(forViewport: start), to: boardPoint(forViewport: end)) != nil {
+      tool = .select
     }
   }
 
@@ -752,10 +792,14 @@ private struct BoardViewportInput: NSViewRepresentable {
   let tool: CanvasTool
   let isSpacePressed: Bool
   let onTap: (CGPoint, EventModifiers) -> Void
+  let onDoubleTap: (CGPoint) -> Void
   let onSelectionChanged: (CGRect?) -> Void
   let onSelectionEnded: (CGRect, EventModifiers) -> Void
   let onFreehandChanged: ([CGPoint]?) -> Void
   let onFreehandEnded: ([CGPoint]) -> Void
+  let onElementDraftChanged: (CGPoint, CGPoint) -> Void
+  let onElementDraftEnded: (CGPoint, CGPoint) -> Void
+  let onElementDraftCancelled: () -> Void
   let onPanChanged: (CGSize) -> Void
   let onPanEnded: (CGSize) -> Void
   let onScroll: (CGSize) -> Void
@@ -776,10 +820,14 @@ private struct BoardViewportInput: NSViewRepresentable {
       tool: tool,
       isSpacePressed: isSpacePressed,
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
       onSelectionChanged: onSelectionChanged,
       onSelectionEnded: onSelectionEnded,
       onFreehandChanged: onFreehandChanged,
       onFreehandEnded: onFreehandEnded,
+      onElementDraftChanged: onElementDraftChanged,
+      onElementDraftEnded: onElementDraftEnded,
+      onElementDraftCancelled: onElementDraftCancelled,
       onPanChanged: onPanChanged,
       onPanEnded: onPanEnded,
       onScroll: onScroll,
@@ -792,10 +840,14 @@ private struct BoardViewportInput: NSViewRepresentable {
       var tool: CanvasTool = .select
       var isSpacePressed = false
       var onTap: (CGPoint, EventModifiers) -> Void = { _, _ in }
+      var onDoubleTap: (CGPoint) -> Void = { _ in }
       var onSelectionChanged: (CGRect?) -> Void = { _ in }
       var onSelectionEnded: (CGRect, EventModifiers) -> Void = { _, _ in }
       var onFreehandChanged: ([CGPoint]?) -> Void = { _ in }
       var onFreehandEnded: ([CGPoint]) -> Void = { _ in }
+      var onElementDraftChanged: (CGPoint, CGPoint) -> Void = { _, _ in }
+      var onElementDraftEnded: (CGPoint, CGPoint) -> Void = { _, _ in }
+      var onElementDraftCancelled: () -> Void = {}
       var onPanChanged: (CGSize) -> Void = { _ in }
       var onPanEnded: (CGSize) -> Void = { _ in }
       var onScroll: (CGSize) -> Void = { _ in }
@@ -806,6 +858,7 @@ private struct BoardViewportInput: NSViewRepresentable {
       case maybeTap
       case selecting
       case drawing
+      case placing
       case panning
     }
 
@@ -817,6 +870,7 @@ private struct BoardViewportInput: NSViewRepresentable {
     private var dragStart: CGPoint?
     private var dragModifiers: EventModifiers = []
     private var dragMode: DragMode = .maybeTap
+    private var dragClickCount = 1
     private var lastPan: CGSize = .zero
     private var freehandPoints: [CGPoint] = []
 
@@ -833,11 +887,13 @@ private struct BoardViewportInput: NSViewRepresentable {
       let point = convert(event.locationInWindow, from: nil)
       dragStart = point
       dragModifiers = EventModifiers(event.modifierFlags)
+      dragClickCount = event.clickCount
       lastPan = .zero
       freehandPoints = []
       dragMode = state.isSpacePressed ? .panning : .maybeTap
       state.onSelectionChanged(nil)
       state.onFreehandChanged(nil)
+      state.onElementDraftCancelled()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -853,6 +909,8 @@ private struct BoardViewportInput: NSViewRepresentable {
           dragMode = .drawing
           freehandPoints = [start]
           state.onFreehandChanged(freehandPoints)
+        } else if state.tool.placesByDragging {
+          dragMode = .placing
         } else {
           dragMode = .panning
         }
@@ -868,6 +926,8 @@ private struct BoardViewportInput: NSViewRepresentable {
           freehandPoints.append(point)
           state.onFreehandChanged(freehandPoints)
         }
+      case .placing:
+        state.onElementDraftChanged(start, point)
       case .panning:
         lastPan = delta
         state.onPanChanged(delta)
@@ -882,7 +942,7 @@ private struct BoardViewportInput: NSViewRepresentable {
 
       switch dragMode {
       case .maybeTap:
-        state.onTap(start, dragModifiers)
+        if dragClickCount >= 2 { state.onDoubleTap(start) } else { state.onTap(start, dragModifiers) }
       case .selecting:
         if distance < 5 {
           state.onSelectionChanged(nil)
@@ -893,6 +953,13 @@ private struct BoardViewportInput: NSViewRepresentable {
       case .drawing:
         if freehandPoints.last != point { freehandPoints.append(point) }
         state.onFreehandEnded(freehandPoints)
+      case .placing:
+        if distance < 5 {
+          state.onElementDraftCancelled()
+          state.onTap(start, dragModifiers)   // a click (no real drag) still drops a default size
+        } else {
+          state.onElementDraftEnded(start, point)
+        }
       case .panning:
         state.onPanEnded(lastPan)
       }
@@ -1078,6 +1145,48 @@ private struct ActiveCardOverlays: View {
 
   private func clamp(_ value: CGFloat, _ lower: CGFloat, _ upper: CGFloat) -> CGFloat {
     Swift.min(Swift.max(value, lower), upper)
+  }
+}
+
+/// Start/end of an in-progress drag that draws a shape or line (viewport coordinates).
+private struct DragSegment: Equatable {
+  var start: CGPoint
+  var end: CGPoint
+}
+
+/// Live rubber-band preview shown while dragging out a shape/line with a placement tool.
+private struct ElementDraftPreview: View {
+  let kind: CanvasElementKind
+  let start: CGPoint
+  let end: CGPoint
+
+  var body: some View {
+    let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                   width: abs(end.x - start.x), height: abs(end.y - start.y))
+    path(in: r).stroke(
+      Color.accentColor.opacity(0.9),
+      style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: dash))
+  }
+
+  private var dash: [CGFloat] { (kind == .line || kind == .arrow) ? [] : [6, 4] }
+
+  private func path(in r: CGRect) -> Path {
+    switch kind {
+    case .line, .arrow:
+      return Path { p in p.move(to: start); p.addLine(to: end) }
+    case .ellipse:
+      return Path(ellipseIn: r)
+    case .diamond:
+      return Path { p in
+        p.move(to: CGPoint(x: r.midX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.midY))
+        p.closeSubpath()
+      }
+    default:
+      return Path(roundedRect: r, cornerRadius: 6)
+    }
   }
 }
 

@@ -339,6 +339,38 @@ final class BoardViewModel: ObservableObject {
     return card.id
   }
 
+  /// Create a shape or line sized by a drag from `start` to `end` (board space). Lines/arrows
+  /// keep the two points as their endpoints; boxes use the bounding frame. Clamped to a minimum.
+  @discardableResult
+  func addDrawnElement(_ kind: CanvasElementKind, from start: CGPoint, to end: CGPoint) -> UUID? {
+    guard kind != .text, kind != .freehand, kind != .image else { return nil }
+    registerUndo()
+    let isLine = (kind == .line || kind == .arrow)
+    let minSize = isLine ? CardState.lineMinSize : CardState.shapeMinSize
+    var minX = min(start.x, end.x), minY = min(start.y, end.y)
+    var maxX = max(start.x, end.x), maxY = max(start.y, end.y)
+    if maxX - minX < minSize.width { let pad = (minSize.width - (maxX - minX)) / 2; minX -= pad; maxX += pad }
+    if maxY - minY < minSize.height { let pad = (minSize.height - (maxY - minY)) / 2; minY -= pad; maxY += pad }
+    let frame = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    let points: [CanvasPoint]? = isLine ? [
+      CanvasPoint(x: Double((start.x - frame.minX) / frame.width), y: Double((start.y - frame.minY) / frame.height)),
+      CanvasPoint(x: Double((end.x - frame.minX) / frame.width), y: Double((end.y - frame.minY) / frame.height)),
+    ] : nil
+    let card = CardState(
+      kind: kind, text: "",
+      x: Double(frame.minX), y: Double(frame.minY), w: Double(frame.width), h: Double(frame.height),
+      z: nextZ, points: points)
+    nextZ += 1
+    cards.append(card)
+    if kind == .arrow { bindArrowIfPossible(card.id) }
+    interactions[card.id] = CardInteraction(card)
+    selectedCardIDs = [card.id]
+    primarySelectedCardID = card.id
+    editingCardID = nil
+    scheduleSave()
+    return card.id
+  }
+
   @discardableResult
   func addFreehandStroke(frame: CGRect, points: [CanvasPoint]) -> UUID? {
     guard points.count > 1 else { return nil }

@@ -24,7 +24,16 @@ struct BoardCardView: View {
   /// unselected card just selects it (and a drag pans/does nothing), and you move it on the next.
   @State private var armedForMove = false
 
-  private let radius: CGFloat = 14
+  /// The content's corner radius, so the selection ring hugs each element shape correctly
+  /// (a too-round ring around a square image is what reads as "wrong").
+  private var radius: CGFloat {
+    switch card.elementKind {
+    case .text: 12
+    case .image: 10
+    case .rectangle: 8
+    default: 6
+    }
+  }
   private var minW: CGFloat { card.minimumSize.width }
   private var minH: CGFloat { card.minimumSize.height }
   private var zoom: CGFloat { max(scale, 0.01) }
@@ -200,28 +209,32 @@ struct BoardCardView: View {
 
   // MARK: Selection ring + resize handles
 
+  /// Px the selection ring sits outside the content, so it frames the element with a little
+  /// breathing room instead of crowding it (and the handles ride that same expanded rect).
+  private let selectionGap: CGFloat = 5
+
   @ViewBuilder
   private var selectionChrome: some View {
     // An empty text card stays bare — a writing spot, not a boxed object. While you type into
     // a text card it's chromeless too; the ring returns only once it's a placed object you
     // select to move or resize. Shapes keep their ring while editing.
     if (isSelected || isEditing) && !isEmptyText {
-      ZStack {
-        if !isTextElement || (isSelected && !isEditing) {
-          RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .strokeBorder(
-              Color.accentColor.opacity(isEditing ? 0.9 : (isTextElement ? 0.42 : 0.6)),
-              lineWidth: isTextElement ? 1 : 1.5)
-            .allowsHitTesting(false)
-        }
-        if isSelected && !isEditing {
-          GeometryReader { geo in
-            if !card.locked {
-              ForEach(Corner.allCases, id: \.self) { corner in
-                handleDot
-                  .position(corner.point(in: geo.size))
-                  .gesture(resizeGesture(corner))
-              }
+      let showRing = !isTextElement || (isSelected && !isEditing)
+      let showHandles = isSelected && !isEditing && !card.locked
+      GeometryReader { geo in
+        ZStack {
+          if showRing {
+            RoundedRectangle(cornerRadius: radius + selectionGap, style: .continuous)
+              .strokeBorder(Color.accentColor.opacity(isEditing ? 0.9 : 0.7), lineWidth: 1)
+              .frame(width: geo.size.width + selectionGap * 2, height: geo.size.height + selectionGap * 2)
+              .position(x: geo.size.width / 2, y: geo.size.height / 2)
+              .allowsHitTesting(false)
+          }
+          if showHandles {
+            ForEach(Corner.allCases, id: \.self) { corner in
+              handleDot
+                .position(handlePoint(corner, in: geo.size))
+                .gesture(resizeGesture(corner))
             }
           }
         }
@@ -229,12 +242,24 @@ struct BoardCardView: View {
     }
   }
 
+  private func handlePoint(_ corner: Corner, in size: CGSize) -> CGPoint {
+    switch corner {
+    case .topLeading: CGPoint(x: -selectionGap, y: -selectionGap)
+    case .topTrailing: CGPoint(x: size.width + selectionGap, y: -selectionGap)
+    case .bottomLeading: CGPoint(x: -selectionGap, y: size.height + selectionGap)
+    case .bottomTrailing: CGPoint(x: size.width + selectionGap, y: size.height + selectionGap)
+    }
+  }
+
+  /// A small white square with a hairline accent edge and a soft shadow — reads as a crisp,
+  /// premium resize handle on the dark glass rather than a flat blue block.
   private var handleDot: some View {
-    RoundedRectangle(cornerRadius: 2, style: .continuous)
+    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
       .fill(Color.white)
-      .frame(width: 9, height: 9)
-      .overlay(RoundedRectangle(cornerRadius: 2, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 1.5))
-      .padding(7)
+      .frame(width: 8, height: 8)
+      .overlay(RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1))
+      .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+      .padding(9)
       .contentShape(Rectangle())
   }
 
@@ -270,16 +295,17 @@ struct BoardCardView: View {
     if isSelected && !isEditing && !card.locked && !isEmptyText {
       Button(action: { board.delete(card.id) }) {
         Image(systemName: "xmark")
-          .font(.system(size: 10, weight: .bold))
-          .foregroundStyle(Color.white.opacity(0.85))
-          .frame(width: 20, height: 20)
-          .background(Circle().fill(Color.black.opacity(0.5)))
-          .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(Color.white.opacity(0.9))
+          .frame(width: 18, height: 18)
+          .background(Circle().fill(Color.black.opacity(0.55)))
+          .overlay(Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5))
+          .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
           .contentShape(Circle())
       }
       .buttonStyle(.plain)
       .help("Delete card")
-      .offset(x: 7, y: -7)
+      .offset(x: selectionGap + 4, y: -(selectionGap + 4))
     }
   }
 

@@ -56,6 +56,7 @@ struct SettingsContent: View {
     ("New board", "⌘N"),
     ("Flip through past boards", "⌘[ / ⌘]"),
     ("Insert a connector", "type @"),
+    ("Pick a tool (select, text, shapes…)", "⌘1 – ⌘8"),
     ("Pan the canvas", "hold Space + drag"),
     ("Select all · duplicate", "⌘A · ⌘D"),
     ("Group · ungroup", "⌘G · ⇧⌘G"),

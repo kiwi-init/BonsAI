@@ -38,6 +38,8 @@ extension Notification.Name {
   /// Posted when the panel is summoned — the canvas enters editing on the active card so the
   /// caret is ready and you can type immediately, without double-clicking first.
   static let composerEnterEditing = Notification.Name("composerEnterEditing")
+  /// ⌘1–⌘8 pick a canvas tool; userInfo["index"] is 1-based (1 = select, 2 = text, …).
+  static let composerSelectTool = Notification.Name("composerSelectTool")
   /// Opens the in-panel Settings view (sidebar gear, ⌘, or the menu-bar item).
   static let composerShowSettings = Notification.Name("composerShowSettings")
   /// Fires after ⌘+/⌘− or Settings changes the editor point size.

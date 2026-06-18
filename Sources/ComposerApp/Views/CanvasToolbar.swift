@@ -26,6 +26,15 @@ enum CanvasTool: Equatable {
     case .image: .image
     }
   }
+
+  /// Shapes & lines are sized by dragging (press → drag → release). Text is click-to-place
+  /// (it auto-grows as you type), freehand has its own stroke capture, select marquees.
+  var placesByDragging: Bool {
+    switch self {
+    case .rectangle, .ellipse, .diamond, .line, .arrow: true
+    default: false
+    }
+  }
 }
 
 /// The floating top tool cluster — the canvas's analog of the left `Sidebar`, using the same
