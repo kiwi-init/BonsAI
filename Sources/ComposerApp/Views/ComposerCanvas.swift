@@ -374,14 +374,12 @@ struct ComposerCanvas: View {
   @ViewBuilder
   private var agentDock: some View {
     if showAgent {
-      HStack(spacing: 0) {
-        Spacer(minLength: 0)
-        AgentDock(agent: agent, onClose: { showAgent = false })
-      }
-      .padding(.top, Theme.Size.toolbarGutter + 6)
-      .padding(.trailing, 14)
-      .padding(.bottom, 14)
-      .transition(.move(edge: .trailing).combined(with: .opacity))
+      AgentDock(agent: agent, onClose: { showAgent = false })
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(.top, Theme.Size.toolbarGutter + 6)
+        .padding(.trailing, 14)
+        .padding(.bottom, 14)
+        .transition(.move(edge: .trailing).combined(with: .opacity))
     }
   }
 

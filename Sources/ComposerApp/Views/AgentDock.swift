@@ -71,8 +71,11 @@ struct AgentDock: View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Think out loud.").font(.body.weight(.medium)).foregroundStyle(Theme.Palette.body)
       Text("The agent reads your board and edits it as you talk — adding, sharpening, and connecting cards. Try “read my board and tell me what's missing.”")
-        .font(.caption).foregroundStyle(Theme.Palette.menuDesc).fixedSize(horizontal: false, vertical: true)
+        .font(.caption).foregroundStyle(Theme.Palette.menuDesc)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.vertical, 8)
   }
 

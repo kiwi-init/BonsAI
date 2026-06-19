@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 // MARK: - Per-card runtime state
 
@@ -198,8 +199,12 @@ final class BoardViewModel: ObservableObject {
     currentBoardID = store.currentID
     let loaded = store.currentCards
     cards = loaded
-    interactions = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, CardInteraction($0)) })
-    nextZ = (loaded.map(\.z).max() ?? 0) + 1
+    // Fit every text card to its content — no live editor is mounted to report heights yet.
+    for i in cards.indices where cards[i].elementKind == .text {
+      cards[i].h = Double(Self.fittedTextHeight(cards[i].text, width: cards[i].w))
+    }
+    interactions = Dictionary(uniqueKeysWithValues: cards.map { ($0.id, CardInteraction($0)) })
+    nextZ = (cards.map(\.z).max() ?? 0) + 1
     let restored = currentBoardID.flatMap { undoCache[$0] }
     undoStack = restored?.undo ?? []
     redoStack = restored?.redo ?? []
@@ -433,9 +438,9 @@ final class BoardViewModel: ObservableObject {
   @discardableResult
   func insertText(_ text: String, at point: CGPoint) -> UUID {
     registerUndo()
-    let size = CardState.textDefaultSize
+    let width = CardState.textDefaultSize.width
     let card = CardState(text: text, x: Double(point.x), y: Double(point.y),
-                         w: Double(size.width), h: Double(size.height), z: nextZ)
+                         w: Double(width), h: Double(Self.fittedTextHeight(text, width: width)), z: nextZ)
     nextZ += 1
     cards.append(card)
     interactions[card.id] = CardInteraction(card)
@@ -453,7 +458,22 @@ final class BoardViewModel: ObservableObject {
     let bundle = interaction(for: id)
     bundle.text = text
     bundle.cachePlainText(text)
+    if cards[i].elementKind == .text { cards[i].h = Double(Self.fittedTextHeight(text, width: cards[i].w)) }
     scheduleSave()
+  }
+
+  /// Height a text card needs to show `text` at `width`, measured the way the non-editing card
+  /// renders it. Used for agent/programmatic edits and on load, where no live editor reports it.
+  static func fittedTextHeight(_ text: String, width: CGFloat) -> CGFloat {
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineSpacing = Theme.Typography.bodyLineSpacing
+    let attributes: [NSAttributedString.Key: Any] = [.font: Theme.Typography.body, .paragraphStyle: paragraph]
+    let contentWidth = max(width - 32, 40)   // CanvasElementContent uses 16pt horizontal padding
+    let measured = ((text.isEmpty ? " " : text) as NSString).boundingRect(
+      with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
+      options: [.usesLineFragmentOrigin, .usesFontLeading],
+      attributes: attributes).height
+    return max(ceil(measured) + 36, CardState.textMinSize.height)   // 18pt vertical padding each side
   }
 
   /// Draw an arrow bound between two existing cards (its geometry tracks their centers).
