@@ -47,6 +47,18 @@ struct ComposerCanvas: View {
     .onChange(of: isWorking) { _, working in
       NotificationCenter.default.post(name: .composerBusyChanged, object: nil, userInfo: ["busy": working])
     }
+    .onChange(of: showAgent) { _, _ in invalidatePanelShadow() }
+  }
+
+  /// The borderless panel's drop shadow is cast by AppKit from the window's opaque alpha. When the
+  /// card resizes to make room for the dock, AppKit doesn't recompute it on its own, leaving ghost
+  /// "line fragments" of the old edge. Re-invalidate across the resize animation so the shadow
+  /// tracks the new card + dock shapes cleanly.
+  private func invalidatePanelShadow() {
+    let window = NSApp.windows.first { $0 is FloatingPanel }
+    for delay in [0.0, 0.12, 0.24, 0.36, 0.5] {
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { window?.invalidateShadow() }
+    }
   }
 
   @ViewBuilder
@@ -391,9 +403,9 @@ struct ComposerCanvas: View {
     if showAgent {
       AgentDock(agent: agent, onClose: { showAgent = false })
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(.top, Theme.Size.toolbarGutter + 6)
-        .padding(.trailing, 14)
-        .padding(.bottom, 14)
+        // Match the card's frame: same top inset, flush to the window bottom — equal height.
+        .padding(.top, Theme.Size.toolbarGutter)
+        .padding(.trailing, 16)
         .transition(.move(edge: .trailing).combined(with: .opacity))
     }
   }

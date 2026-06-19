@@ -170,15 +170,15 @@ private struct FolderToolButton: View {
     Button(action: action) {
       Group {
         if let folder {
-          HStack(spacing: 5) {
-            Image(systemName: "folder.fill").font(.system(size: 13, weight: .medium))
+          HStack(spacing: 6) {
+            Image(systemName: "folder.fill").font(.system(size: 14, weight: .medium))
             Text(folder)
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: 12.5, weight: .medium))
               .lineLimit(1).truncationMode(.middle)
               .frame(maxWidth: 120, alignment: .leading)
           }
-          .foregroundStyle(Color.accentColor)
-          .padding(.horizontal, 9)
+          .foregroundStyle(Color.white.opacity(hovering ? 0.98 : 0.82))
+          .padding(.horizontal, 10)
           .frame(height: ToolMetrics.side)
         } else {
           Image(systemName: "folder.badge.plus")
@@ -201,8 +201,8 @@ private struct FolderToolButton: View {
   }
 }
 
-/// The agent toggle — shows the active engine's brand mark. Active is marked by a hairline accent
-/// ring (not a blue fill), matching the icon-led active style of the other rails.
+/// The agent toggle — shows the active engine's brand mark. Just the brand icon (no active ring or
+/// fill); the open/closed state reads from the dock itself.
 private struct AgentToolButton: View {
   var active: Bool
   var action: () -> Void
@@ -217,16 +217,11 @@ private struct AgentToolButton: View {
           RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(hovering ? Color.white.opacity(0.12) : Color.clear)
         )
-        .overlay(
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .strokeBorder(Color.accentColor.opacity(active ? 0.9 : 0), lineWidth: 1.5)
-        )
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
     .help("Chat with the agent on this board  ⌘J")
     .animation(.easeOut(duration: 0.12), value: hovering)
-    .animation(Theme.Motion.accessory, value: active)
   }
 }

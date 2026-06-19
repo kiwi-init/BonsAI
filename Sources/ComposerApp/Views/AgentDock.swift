@@ -15,45 +15,44 @@ struct AgentDock: View {
       transcript
       inputBar
     }
-    .frame(width: 360)
+    .frame(width: Theme.Size.agentDockWidth)
     .frame(maxHeight: .infinity)
-    .background {
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(Color.black.opacity(0.5))
-        .background(VisualEffectBackground(material: .hudWindow, blending: .withinWindow, state: .active))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
-    }
+    // Identical glass to the main window — same frosted treatment, tint, and corner radius — so the
+    // dock reads as a second panel floating beside the card. The panel's own drop shadow grounds it.
+    .background(ComposerPanelBackground(radius: Theme.Radius.panel))
+    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
   }
 
   // MARK: Header
 
   private var header: some View {
-    HStack(spacing: 8) {
-      AgentEngineIcon(size: 16)
+    HStack(spacing: 10) {
+      AgentEngineIcon(size: 17)
       Text("Agent").font(.body.weight(.semibold)).foregroundStyle(Theme.Palette.body)
-      if agent.isRunning { ProgressView().controlSize(.small).scaleEffect(0.65) }
-      Spacer(minLength: 6)
+      if agent.isRunning { ProgressView().controlSize(.small).scaleEffect(0.62) }
+      Spacer(minLength: 8)
       groundingControl
-      iconButton("arrow.counterclockwise", help: "New conversation") { agent.reset(); draft = "" }
-      iconButton("xmark", help: "Close  ⌘J", action: onClose)
+      HStack(spacing: 2) {
+        iconButton("arrow.counterclockwise", help: "New conversation") { agent.reset(); draft = "" }
+        iconButton("xmark", help: "Close  ⌘J", action: onClose)
+      }
     }
-    .padding(.horizontal, 14).frame(height: 48)
+    .padding(.leading, 16).padding(.trailing, 12).frame(height: 52)
   }
 
   @ViewBuilder
   private var groundingControl: some View {
     if let dir = agent.groundingDirectory {
       Button { agent.chooseDirectory() } label: {
-        HStack(spacing: 4) {
-          Image(systemName: "folder.fill").font(.system(size: 10))
-          Text(dir.lastPathComponent).font(.caption).lineLimit(1).truncationMode(.middle)
+        HStack(spacing: 5) {
+          Image(systemName: "folder.fill").font(.system(size: 10.5))
+          Text(dir.lastPathComponent).font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
             .frame(maxWidth: 96, alignment: .leading)
         }
-        .foregroundStyle(Color.accentColor)
-        .padding(.horizontal, 8).frame(height: 22)
-        .background(Capsule().fill(Color.accentColor.opacity(0.16)))
+        .foregroundStyle(Theme.Palette.body)
+        .padding(.horizontal, 9).frame(height: 24)
+        .background(Capsule().fill(Color.white.opacity(0.08)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
         .contentShape(Capsule())
       }
       .buttonStyle(.plain)
