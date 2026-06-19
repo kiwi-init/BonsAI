@@ -91,9 +91,7 @@ struct CanvasToolbar: View {
 
       divider
 
-      ToolButton(symbol: groundedFolder == nil ? "folder.badge.plus" : "folder.fill",
-                 help: groundedFolder.map { "Agent grounded in \($0)  ·  click to change" } ?? "Ground the agent in a folder it can read",
-                 active: groundedFolder != nil, action: onFolder)
+      FolderToolButton(folder: groundedFolder, action: onFolder)
       AgentToolButton(active: agentOpen, action: onAgent)
     }
     .padding(.horizontal, 8)
@@ -102,8 +100,15 @@ struct CanvasToolbar: View {
   }
 
   private var divider: some View {
-    Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 18).padding(.horizontal, 2)
+    Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 20).padding(.horizontal, 2)
   }
+}
+
+/// Square dimensions for a toolbar control — the glyph is sized to match the left `Sidebar`'s
+/// 17pt icons so the two rails read as siblings.
+private enum ToolMetrics {
+  static let side: CGFloat = 34
+  static let icon: CGFloat = 17
 }
 
 private struct ToolButton: View {
@@ -119,13 +124,14 @@ private struct ToolButton: View {
   var body: some View {
     Button(action: action) {
       Image(systemName: symbol)
-        .font(.system(size: 15, weight: .medium))
+        .font(.system(size: ToolMetrics.icon, weight: .medium))
         .foregroundStyle(foreground)
-        .frame(width: 32, height: 30)
+        .frame(width: ToolMetrics.side, height: ToolMetrics.side)
+        // No blue fill for the active state — the accent-tinted glyph is the signal; the only
+        // background is a neutral hover wash.
         .background(
           RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(active ? Color.accentColor.opacity(0.22)
-                  : (hovering && !disabled ? Color.white.opacity(0.12) : Color.clear))
+            .fill(hovering && !disabled ? Color.white.opacity(0.12) : Color.clear)
         )
         .overlay(alignment: .bottomTrailing) {
           if let shortcut {
@@ -151,7 +157,52 @@ private struct ToolButton: View {
   }
 }
 
-/// The agent toggle — shows the active engine's brand mark instead of a generic glyph.
+/// The grounding control: a plain folder glyph when canvas-only, or — once grounded — an
+/// accent-tinted folder that expands to show the directory name, so the agent's context is visible
+/// at a glance.
+private struct FolderToolButton: View {
+  /// The grounded directory's display name, or nil when canvas-only.
+  let folder: String?
+  var action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      Group {
+        if let folder {
+          HStack(spacing: 5) {
+            Image(systemName: "folder.fill").font(.system(size: 13, weight: .medium))
+            Text(folder)
+              .font(.system(size: 12, weight: .medium))
+              .lineLimit(1).truncationMode(.middle)
+              .frame(maxWidth: 120, alignment: .leading)
+          }
+          .foregroundStyle(Color.accentColor)
+          .padding(.horizontal, 9)
+          .frame(height: ToolMetrics.side)
+        } else {
+          Image(systemName: "folder.badge.plus")
+            .font(.system(size: ToolMetrics.icon, weight: .medium))
+            .foregroundStyle(Color.white.opacity(hovering ? 0.95 : 0.62))
+            .frame(width: ToolMetrics.side, height: ToolMetrics.side)
+        }
+      }
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(hovering ? Color.white.opacity(0.12) : Color.clear)
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+    .help(folder.map { "Agent grounded in \($0)  ·  click to change" } ?? "Ground the agent in a folder it can read")
+    .animation(.easeOut(duration: 0.12), value: hovering)
+    .animation(Theme.Motion.accessory, value: folder)
+  }
+}
+
+/// The agent toggle — shows the active engine's brand mark. Active is marked by a hairline accent
+/// ring (not a blue fill), matching the icon-led active style of the other rails.
 private struct AgentToolButton: View {
   var active: Bool
   var action: () -> Void
@@ -159,12 +210,16 @@ private struct AgentToolButton: View {
 
   var body: some View {
     Button(action: action) {
-      AgentEngineIcon(size: 16)
-        .frame(width: 32, height: 30)
+      AgentEngineIcon(size: 18)
+        .frame(width: ToolMetrics.side, height: ToolMetrics.side)
         .opacity(active ? 1 : (hovering ? 0.95 : 0.78))
         .background(
           RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(active ? Color.accentColor.opacity(0.22) : (hovering ? Color.white.opacity(0.12) : Color.clear))
+            .fill(hovering ? Color.white.opacity(0.12) : Color.clear)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .strokeBorder(Color.accentColor.opacity(active ? 0.9 : 0), lineWidth: 1.5)
         )
         .contentShape(Rectangle())
     }
@@ -172,5 +227,6 @@ private struct AgentToolButton: View {
     .onHover { hovering = $0 }
     .help("Chat with the agent on this board  ⌘J")
     .animation(.easeOut(duration: 0.12), value: hovering)
+    .animation(Theme.Motion.accessory, value: active)
   }
 }

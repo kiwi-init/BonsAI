@@ -88,12 +88,12 @@ final class CanvasBridge {
         return BoardViewModel.DiagramEdgeSpec(from: from, to: to, reason: string(edge["reason"]) ?? "")
       }
       let map = board.createDiagram(nodes: specs, edges: edgeSpecs, direction: layoutDirection(op["direction"]))
-      frameBoard()
+      frameBoard(all: false)   // the new diagram is selected — frame exactly it
       return ok(["nodes": map.mapValues { $0.uuidString }, "count": map.count])
 
     case "relayout":
       board.relayout(direction: layoutDirection(op["direction"]))
-      frameBoard()
+      frameBoard(all: true)    // tidy reflows everything — frame the whole board, not a stray selection
       return ok()
 
     case "update_text":
@@ -152,9 +152,11 @@ final class CanvasBridge {
     (value as? String) == "right" ? .right : .down
   }
 
-  /// Re-frame the viewport on the board after a layout pass, so the agent's diagram lands in view.
-  private func frameBoard() {
-    NotificationCenter.default.post(name: .composerZoomFit, object: nil)
+  /// Re-frame the viewport after a layout pass, so the agent's work lands in view. `all` forces
+  /// the whole board (tidy); otherwise it honors the current selection (a freshly drawn diagram).
+  private func frameBoard(all: Bool) {
+    NotificationCenter.default.post(name: .composerZoomFit, object: nil,
+                                    userInfo: all ? ["scope": "all"] : [:])
   }
 
   private func string(_ value: Any?) -> String? { value as? String }

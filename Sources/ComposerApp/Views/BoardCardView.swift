@@ -731,10 +731,8 @@ private struct CardPointerCatcher: NSViewRepresentable {
         userInfo: ["dx": event.scrollingDeltaX, "dy": event.scrollingDeltaY])
     }
 
-    override func magnify(with event: NSEvent) {
-      NotificationCenter.default.post(
-        name: .composerCanvasMagnify, object: nil, userInfo: ["magnification": event.magnification])
-    }
+    // Pinch-zoom is handled board-wide by PinchZoomCatcher's event monitor, so cards don't need to
+    // forward magnify (which anchored inconsistently at the viewport center).
   }
 }
 

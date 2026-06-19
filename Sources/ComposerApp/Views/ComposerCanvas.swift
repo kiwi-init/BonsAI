@@ -51,11 +51,14 @@ struct ComposerCanvas: View {
 
   @ViewBuilder
   private func canvasRoot(proxy: GeometryProxy) -> some View {
-    let inner = CGSize(width: max(proxy.size.width - Theme.Size.railGutter, 1),
+    // When the agent dock is open the card yields a right gutter so the dock floats beside it
+    // (like the rail/toolbar), rather than covering the board.
+    let agentInset = showAgent ? Theme.Size.agentGutter : 0
+    let inner = CGSize(width: max(proxy.size.width - Theme.Size.railGutter - agentInset, 1),
                        height: max(proxy.size.height - Theme.Size.toolbarGutter, 1))
     ZStack(alignment: .topLeading) {
       // The glass card — the "main window". Inset from the left (rail gutter) and top
-      // (toolbar gutter) so the rails float outside it.
+      // (toolbar gutter) so the rails float outside it, and from the right when the dock is open.
       ZStack(alignment: .topLeading) {
         ComposerPanelBackground()
         boardContent(viewportSize: inner)
@@ -66,6 +69,7 @@ struct ComposerCanvas: View {
       .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
       .padding(.leading, Theme.Size.railGutter)
       .padding(.top, Theme.Size.toolbarGutter)
+      .padding(.trailing, agentInset)
 
       // Active-card overlays resolve through screen → window space, so they live in
       // full-window coordinates and keep working while the board itself is transformed.
@@ -140,7 +144,10 @@ struct ComposerCanvas: View {
       .onReceive(NotificationCenter.default.publisher(for: .composerZoomOut)) { _ in zoom(0.8, anchoredAt: zoomAnchor) }
       .onReceive(NotificationCenter.default.publisher(for: .composerZoomIn)) { _ in zoom(1.25, anchoredAt: zoomAnchor) }
       .onReceive(NotificationCenter.default.publisher(for: .composerZoomReset)) { _ in withAnimation(Theme.Motion.accessory) { scale = 1 } }
-      .onReceive(NotificationCenter.default.publisher(for: .composerZoomFit)) { _ in withAnimation(Theme.Motion.accessory) { fitBoard(in: lastViewportSize) } }
+      .onReceive(NotificationCenter.default.publisher(for: .composerZoomFit)) { note in
+        let all = (note.userInfo?["scope"] as? String) == "all"
+        withAnimation(Theme.Motion.accessory) { fitBoard(in: lastViewportSize, forceAll: all) }
+      }
   }
 
   private var spaceKeyBridge: some View {
@@ -153,10 +160,6 @@ struct ComposerCanvas: View {
         let dx = (note.userInfo?["dx"] as? CGFloat) ?? 0
         let dy = (note.userInfo?["dy"] as? CGFloat) ?? 0
         handleScroll(CGSize(width: dx, height: dy))
-      }
-      .onReceive(NotificationCenter.default.publisher(for: .composerCanvasMagnify)) { note in
-        let magnification = (note.userInfo?["magnification"] as? CGFloat) ?? 0
-        handleZoom(1 + magnification, anchoredAt: viewportCenter)
       }
       .onReceive(NotificationCenter.default.publisher(for: .composerEnterEditing)) { _ in
         enterEditingForEntry()
@@ -222,6 +225,11 @@ struct ComposerCanvas: View {
       selectionRectView
       freehandDraftView
       elementDraftView
+
+      // Board-wide pinch-to-zoom, so it works no matter what's under the cursor (card, dock,
+      // toolbar, editing text view). Transparent to clicks; only listens for magnify.
+      PinchZoomCatcher(onZoom: handleZoom)
+        .allowsHitTesting(false)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
@@ -374,6 +382,8 @@ struct ComposerCanvas: View {
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .padding(.top, 12)
+    // Stay centered over the card, not the whole window, when the dock takes the right gutter.
+    .padding(.trailing, showAgent ? Theme.Size.agentGutter : 0)
   }
 
   @ViewBuilder
@@ -482,8 +492,8 @@ struct ComposerCanvas: View {
   }
 
   private func handleScroll(_ delta: CGSize) {
-    dismissEditorOverlays()
     viewportThrottle.enqueueScroll(delta) { applied in
+      dismissEditorOverlays()
       pan.width += applied.width
       pan.height += applied.height
     }
@@ -512,9 +522,11 @@ struct ComposerCanvas: View {
     }
   }
 
-  /// Frame the whole board within the card viewport at a comfortable margin.
-  private func fitBoard(in size: CGSize) {
-    let selected = board.cards.filter { board.selectedCardIDs.contains($0.id) }
+  /// Frame the board within the card viewport at a comfortable margin. Frames the current
+  /// selection when there is one (so "Fit" can zoom to what you picked), unless `forceAll` asks for
+  /// the whole board — used by the agent's tidy/relayout so it never snaps to a stray selection.
+  private func fitBoard(in size: CGSize, forceAll: Bool = false) {
+    let selected = forceAll ? [] : board.cards.filter { board.selectedCardIDs.contains($0.id) }
     let target = selected.isEmpty ? board.cards : selected
     guard !target.isEmpty else { scale = 1; pan = .zero; return }
     let minX = target.map(\.x).min() ?? 0
@@ -1007,11 +1019,6 @@ private struct BoardViewportInput: NSViewRepresentable {
       state.onScroll(CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
     }
 
-    override func magnify(with event: NSEvent) {
-      let point = convert(event.locationInWindow, from: nil)
-      state.onZoom(1 + event.magnification, point)
-    }
-
     private static func normalizedRect(from start: CGPoint, to end: CGPoint) -> CGRect {
       CGRect(
         x: min(start.x, end.x),
@@ -1031,6 +1038,47 @@ private extension EventModifiers {
     if flags.contains(.option) { modifiers.insert(.option) }
     if flags.contains(.control) { modifiers.insert(.control) }
     self = modifiers
+  }
+}
+
+// MARK: - Board-wide pinch zoom
+
+/// Reliable pinch-to-zoom for the whole board. A per-view `magnify(with:)` only fires when the
+/// gesture lands on that exact view, so pinching over a card, the dock, the toolbar, or an editing
+/// text view used to silently do nothing — the "sometimes it works, sometimes it doesn't" feel.
+/// A single local event monitor catches every `.magnify` in the panel window regardless of what's
+/// under the cursor, so it works everywhere, every time; it stays transparent to clicks and scroll.
+private struct PinchZoomCatcher: NSViewRepresentable {
+  let onZoom: (CGFloat, CGPoint) -> Void
+
+  func makeNSView(context: Context) -> MonitorView {
+    let view = MonitorView()
+    view.onZoom = onZoom
+    view.install()
+    return view
+  }
+  func updateNSView(_ view: MonitorView, context: Context) { view.onZoom = onZoom }
+  static func dismantleNSView(_ view: MonitorView, coordinator: ()) { view.uninstall() }
+
+  final class MonitorView: NSView {
+    var onZoom: (CGFloat, CGPoint) -> Void = { _, _ in }
+    private var monitor: Any?
+    override var isFlipped: Bool { true }
+    // Pointer-transparent: clicks/scroll fall through to the board; the monitor still gets magnify.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func install() {
+      guard monitor == nil else { return }
+      monitor = NSEvent.addLocalMonitorForEvents(matching: .magnify) { [weak self] event in
+        guard let self, let window = self.window, event.window === window else { return event }
+        self.onZoom(1 + event.magnification, self.convert(event.locationInWindow, from: nil))
+        return nil   // handled here — don't let any view double-apply it
+      }
+    }
+    func uninstall() {
+      if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+    }
+    deinit { uninstall() }
   }
 }
 

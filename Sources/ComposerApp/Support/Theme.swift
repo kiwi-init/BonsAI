@@ -36,6 +36,10 @@ enum Theme {
     static let railGutter: CGFloat = 84
     /// Transparent top margin of the window where the canvas toolbar floats above the card.
     static let toolbarGutter: CGFloat = 60
+    /// Width of the right gutter the card yields to when the agent dock is open, so the dock
+    /// floats beside the card (like the rail/toolbar) instead of covering it. Dock width + margins.
+    static let agentDockWidth: CGFloat = 360
+    static let agentGutter: CGFloat = 392
 
     static let actionBarHeight: CGFloat = 34
     static let actionBarItemHeight: CGFloat = 28

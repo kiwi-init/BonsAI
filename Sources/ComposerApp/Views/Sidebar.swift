@@ -40,8 +40,9 @@ struct SidebarButton: View {
         .foregroundStyle(foreground)
         .frame(width: 38, height: 38)
         .background(
-          Circle().fill(active ? Color.accentColor.opacity(0.22)
-                        : (hovering && !disabled ? Color.white.opacity(0.12) : Color.clear))
+          // Active reads through the accent-tinted icon (below) — no blue fill, just a neutral
+          // hover wash so the control still feels live.
+          Circle().fill(hovering && !disabled ? Color.white.opacity(0.12) : Color.clear)
         )
         .contentShape(Circle())
     }
