@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if debugDock { NSApp.activate(ignoringOtherApps: true) }
     hotKeyManager.register()
     MentionStyleCache.shared.preload()
+    CanvasServer.shared.start()   // local API so a CLI / MCP server can read & drive the canvas
     NotificationCenter.default.addObserver(
       self, selector: #selector(toggle),
       name: .composerToggleWindow, object: nil)

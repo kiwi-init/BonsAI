@@ -81,7 +81,7 @@ struct ComposerCanvas: View {
       toolbar(fit: inner)
       commandBridge
     }
-    .onAppear { lastViewportSize = inner; enterEditingForEntry() }
+    .onAppear { lastViewportSize = inner; enterEditingForEntry(); CanvasBridge.shared.register(board) }
     .onChange(of: inner) { _, value in lastViewportSize = value }
   }
 

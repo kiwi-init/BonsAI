@@ -426,6 +426,54 @@ final class BoardViewModel: ObservableObject {
     return card.id
   }
 
+  // MARK: Programmatic mutations (canvas API / external agents)
+
+  /// Insert a text card carrying `text` at a board point, without entering edit mode — used by
+  /// the canvas API so an agent can drop content without stealing the caret.
+  @discardableResult
+  func insertText(_ text: String, at point: CGPoint) -> UUID {
+    registerUndo()
+    let size = CardState.textDefaultSize
+    let card = CardState(text: text, x: Double(point.x), y: Double(point.y),
+                         w: Double(size.width), h: Double(size.height), z: nextZ)
+    nextZ += 1
+    cards.append(card)
+    interactions[card.id] = CardInteraction(card)
+    selectedCardIDs = [card.id]
+    primarySelectedCardID = card.id
+    scheduleSave()
+    return card.id
+  }
+
+  /// Replace a card's text (serialized form). The live editor re-chipifies it if mounted.
+  func setText(_ id: UUID, _ text: String) {
+    guard let i = cards.firstIndex(where: { $0.id == id }) else { return }
+    registerUndo()
+    cards[i].text = text
+    let bundle = interaction(for: id)
+    bundle.text = text
+    bundle.cachePlainText(text)
+    scheduleSave()
+  }
+
+  /// Draw an arrow bound between two existing cards (its geometry tracks their centers).
+  @discardableResult
+  func connectCards(from: UUID, to: UUID) -> UUID? {
+    guard from != to, cards.contains(where: { $0.id == from }), cards.contains(where: { $0.id == to }) else { return nil }
+    registerUndo()
+    let card = CardState(kind: .arrow, text: "",
+                         x: 0, y: 0, w: Double(CardState.lineSize.width), h: Double(CardState.lineSize.height),
+                         z: nextZ, startBindingID: from, endBindingID: to)
+    nextZ += 1
+    cards.append(card)
+    interactions[card.id] = CardInteraction(card)
+    if let index = cards.firstIndex(where: { $0.id == card.id }) { updateBoundArrowGeometry(at: index) }
+    selectedCardIDs = [card.id]
+    primarySelectedCardID = card.id
+    scheduleSave()
+    return card.id
+  }
+
   /// Commit a moved/resized card frame (board space).
   func setFrame(_ id: UUID, _ frame: CGRect) {
     guard let i = cards.firstIndex(where: { $0.id == id }) else { return }
