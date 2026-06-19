@@ -393,12 +393,9 @@ struct ComposerCanvas: View {
       onZoomReset: { withAnimation(Theme.Motion.accessory) { scale = 1 } },
       onFit: { withAnimation(Theme.Motion.accessory) { fitBoard(in: innerSize) } }
     )
+    // Centered in the window and fixed there — opening the dock must not shift it.
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .padding(.top, 12)
-    // Center over the card, not the whole window: match the card's left (rail) and right (agent
-    // dock) insets so the toolbar stays centered over the work area in every state.
-    .padding(.leading, Theme.Size.railGutter)
-    .padding(.trailing, showAgent ? Theme.Size.agentGutter : 0)
   }
 
   @ViewBuilder
