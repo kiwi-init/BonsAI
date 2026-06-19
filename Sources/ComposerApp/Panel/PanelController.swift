@@ -139,6 +139,10 @@ final class PanelController: NSObject, NSWindowDelegate {
 
   func windowDidResignKey(_ notification: Notification) {
     guard !isBusy else { return }
+    // A file picker / sheet (e.g. the agent's folder chooser) taking key focus must not dismiss
+    // the panel — only a click-away to another app should.
+    if NSApp.keyWindow is NSOpenPanel || NSApp.keyWindow is NSSavePanel { return }
+    if panel?.attachedSheet != nil { return }
     hide()
   }
 

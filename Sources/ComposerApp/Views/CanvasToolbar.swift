@@ -43,6 +43,9 @@ enum CanvasTool: Equatable {
 struct CanvasToolbar: View {
   @Binding var tool: CanvasTool
   let zoomPercent: Int
+  /// The grounding folder's display name, or nil when the agent is canvas-only.
+  var groundedFolder: String?
+  var onFolder: () -> Void
   var agentOpen: Bool
   var onAgent: () -> Void
   var onZoomOut: () -> Void
@@ -86,6 +89,9 @@ struct CanvasToolbar: View {
 
       divider
 
+      ToolButton(symbol: groundedFolder == nil ? "folder.badge.plus" : "folder.fill",
+                 help: groundedFolder.map { "Agent grounded in \($0)  ·  click to change" } ?? "Ground the agent in a folder it can read",
+                 active: groundedFolder != nil, action: onFolder)
       AgentToolButton(active: agentOpen, action: onAgent)
     }
     .padding(.horizontal, 8)

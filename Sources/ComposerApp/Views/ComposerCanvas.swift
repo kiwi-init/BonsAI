@@ -23,6 +23,8 @@ struct ComposerCanvas: View {
   /// dock, not the whole canvas. Visibility is the separate `showAgent`.
   @State private var agent = CanvasAgent()
   @State private var showAgent = false
+  /// Mirrors the agent's grounding folder so the toolbar reflects it reactively.
+  @AppStorage("agent.groundingDirectory") private var groundingPath = ""
 
   // Board transform. Pointer locations are normalized back into board space so selection,
   // placement, and dragging keep working at every zoom level.
@@ -360,6 +362,8 @@ struct ComposerCanvas: View {
     CanvasToolbar(
       tool: $tool,
       zoomPercent: Int((effectiveScale * 100).rounded()),
+      groundedFolder: groundingPath.isEmpty ? nil : URL(fileURLWithPath: groundingPath).lastPathComponent,
+      onFolder: { agent.chooseDirectory() },
       agentOpen: showAgent,
       onAgent: { showAgent.toggle() },
       onZoomOut: { zoom(0.8, anchoredAt: zoomAnchor) },

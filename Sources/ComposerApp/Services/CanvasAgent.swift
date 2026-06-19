@@ -35,6 +35,8 @@ final class CanvasAgent: ObservableObject {
 
   /// Pick (or clear) the folder the agent can read.
   func chooseDirectory() {
+    // Suppress the panel's click-away dismissal while the picker is up.
+    NotificationCenter.default.post(name: .composerBusyChanged, object: nil, userInfo: ["busy": true])
     let panel = NSOpenPanel()
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
@@ -43,8 +45,8 @@ final class CanvasAgent: ObservableObject {
     panel.message = "Pick a folder the agent can read to ground its suggestions in real files."
     if let dir = groundingDirectory { panel.directoryURL = dir }
     let apply: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-      guard response == .OK, let url = panel.url else { return }
-      self?.setGroundingDirectory(url)
+      if response == .OK, let url = panel.url { self?.setGroundingDirectory(url) }
+      NotificationCenter.default.post(name: .composerBusyChanged, object: nil, userInfo: ["busy": false])
     }
     if let window = NSApp.keyWindow {
       panel.beginSheetModal(for: window, completionHandler: apply)
