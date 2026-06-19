@@ -1,0 +1,107 @@
+import Foundation
+
+/// Minimal MCP (Model Context Protocol) server over the local HTTP transport, so a headless
+/// `claude` agent — pointed at http://127.0.0.1:<port>/mcp — can read and drive the canvas with
+/// real tools. Stateless JSON-RPC: each POST is one request, answered with one JSON response.
+/// Tools surface to the agent as `mcp__canvas__<name>`.
+@MainActor
+enum CanvasMCP {
+  private static let fallbackProtocol = "2025-06-18"
+
+  /// Returns the JSON-RPC response, or nil for notifications (which get a 202 with no body).
+  static func handle(_ message: [String: Any]) -> [String: Any]? {
+    let id = message["id"]
+    guard let method = message["method"] as? String else { return nil }
+
+    switch method {
+    case "initialize":
+      let version = ((message["params"] as? [String: Any])?["protocolVersion"] as? String) ?? fallbackProtocol
+      return reply(id, [
+        "protocolVersion": version,
+        "capabilities": ["tools": [String: Any]()],
+        "serverInfo": ["name": "composer-canvas", "version": "0.1.0"],
+      ])
+
+    case "ping":
+      return reply(id, [:])
+
+    case "tools/list":
+      return reply(id, ["tools": toolSpecs])
+
+    case "tools/call":
+      let params = message["params"] as? [String: Any] ?? [:]
+      return reply(id, callTool(params["name"] as? String ?? "",
+                                arguments: params["arguments"] as? [String: Any] ?? [:]))
+
+    case let m where m.hasPrefix("notifications/"):
+      return nil
+
+    default:
+      return errorReply(id, code: -32601, message: "method not found: \(method)")
+    }
+  }
+
+  // MARK: Tools
+
+  /// Tool name → the `CanvasBridge.apply` op it maps to (get_canvas is handled directly).
+  private static let opForTool: [String: String] = [
+    "add_text": "add_text", "add_shape": "add_shape", "set_text": "update_text",
+    "move_node": "move", "resize_node": "resize", "delete_node": "delete", "connect": "connect",
+  ]
+
+  private static func callTool(_ name: String, arguments: [String: Any]) -> [String: Any] {
+    if name == "get_canvas" {
+      let graph = CanvasBridge.shared.snapshot()
+      let text = (try? JSONEncoder().encode(graph)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+      return content(text)
+    }
+    guard let op = opForTool[name] else {
+      return content("unknown tool: \(name)", isError: true)
+    }
+    var payload = arguments
+    payload["op"] = op
+    let result = CanvasBridge.shared.apply(payload)
+    let text = (try? JSONSerialization.data(withJSONObject: result)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    return content(text, isError: (result["ok"] as? Bool) == false)
+  }
+
+  private static func content(_ text: String, isError: Bool = false) -> [String: Any] {
+    ["content": [["type": "text", "text": text]], "isError": isError]
+  }
+
+  private static let toolSpecs: [[String: Any]] = [
+    tool("get_canvas", "Read the entire board as a graph: nodes (cards/shapes with id, kind, text, x/y/w/h), edges (bound arrows/lines), and reading order.", [:], []),
+    tool("add_text", "Add a text card at a board point. Text may contain @-connector tokens.",
+         ["text": str("Card text"), "x": num("Board x"), "y": num("Board y")], ["text", "x", "y"]),
+    tool("add_shape", "Add a shape sized by a bounding box.",
+         ["kind": str("rectangle | ellipse | diamond | line | arrow"),
+          "x": num("Top-left x"), "y": num("Top-left y"), "w": num("Width"), "h": num("Height")],
+         ["kind", "x", "y", "w", "h"]),
+    tool("set_text", "Replace a node's text by id.",
+         ["id": str("Node id"), "text": str("New text")], ["id", "text"]),
+    tool("move_node", "Move a node to a board point.",
+         ["id": str("Node id"), "x": num("New x"), "y": num("New y")], ["id", "x", "y"]),
+    tool("resize_node", "Resize a node.",
+         ["id": str("Node id"), "w": num("New width"), "h": num("New height")], ["id", "w", "h"]),
+    tool("delete_node", "Delete a node by id.", ["id": str("Node id")], ["id"]),
+    tool("connect", "Draw an arrow from one node to another.",
+         ["from": str("Source node id"), "to": str("Target node id")], ["from", "to"]),
+  ]
+
+  private static func tool(_ name: String, _ description: String,
+                           _ properties: [String: Any], _ required: [String]) -> [String: Any] {
+    ["name": name, "description": description,
+     "inputSchema": ["type": "object", "properties": properties, "required": required]]
+  }
+  private static func str(_ description: String) -> [String: Any] { ["type": "string", "description": description] }
+  private static func num(_ description: String) -> [String: Any] { ["type": "number", "description": description] }
+
+  // MARK: JSON-RPC envelope
+
+  private static func reply(_ id: Any?, _ result: [String: Any]) -> [String: Any] {
+    ["jsonrpc": "2.0", "id": id ?? NSNull(), "result": result]
+  }
+  private static func errorReply(_ id: Any?, code: Int, message: String) -> [String: Any] {
+    ["jsonrpc": "2.0", "id": id ?? NSNull(), "error": ["code": code, "message": message]]
+  }
+}

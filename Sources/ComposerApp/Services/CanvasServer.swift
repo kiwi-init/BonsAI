@@ -63,9 +63,7 @@ final class CanvasServer {
       }
 
     case ("POST", "/canvas"):
-      let bodyStart = buffer.startIndex + request.bodyStart
-      let bodyEnd = min(buffer.endIndex, bodyStart + request.contentLength)
-      let body = bodyStart <= bodyEnd ? buffer.subdata(in: bodyStart..<bodyEnd) : Data()
+      let body = self.body(of: buffer, request: request)
       Task { @MainActor in
         let op = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
         let result = CanvasBridge.shared.apply(op)
@@ -73,9 +71,32 @@ final class CanvasServer {
         self.send(connection, status: ok ? "200 OK" : "422 Unprocessable Entity", json: result)
       }
 
+    // MCP (JSON-RPC) transport so a headless `claude` agent can use canvas tools.
+    case ("POST", "/mcp"):
+      let body = self.body(of: buffer, request: request)
+      Task { @MainActor in
+        let message = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        if let response = CanvasMCP.handle(message) {
+          self.send(connection, status: "200 OK", json: response)
+        } else {
+          self.send(connection, status: "202 Accepted", data: Data())   // notification: no body
+        }
+      }
+
+    case ("GET", "/mcp"):
+      // No server-initiated SSE stream; this server is request/response only.
+      send(connection, status: "405 Method Not Allowed", json: ["error": "use POST"])
+
     default:
       send(connection, status: "404 Not Found", json: ["ok": false, "error": "not found"])
     }
+  }
+
+  /// Slice the request body out of the raw buffer.
+  private func body(of buffer: Data, request: HTTPRequest) -> Data {
+    let start = buffer.startIndex + request.bodyStart
+    let end = min(buffer.endIndex, start + request.contentLength)
+    return start <= end ? buffer.subdata(in: start..<end) : Data()
   }
 
   // MARK: Response
