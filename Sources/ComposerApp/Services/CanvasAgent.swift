@@ -1,0 +1,177 @@
+import Foundation
+
+struct AgentMessage: Identifiable, Equatable {
+  enum Role { case user, assistant, tool, error }
+  let id = UUID()
+  let role: Role
+  var text: String
+}
+
+/// Drives a headless `claude` agent that lives *inside* the canvas: each turn spawns the CLI in
+/// `stream-json` mode with the canvas MCP server auto-attached (canvas tools only), and parses the
+/// stream into a chat transcript. Session continuity is kept with `--resume`, so it's one ongoing
+/// conversation. The agent's edits land on the board live via MCP → CanvasBridge.
+@MainActor
+final class CanvasAgent: ObservableObject {
+  @Published private(set) var messages: [AgentMessage] = []
+  @Published private(set) var isRunning = false
+
+  private var sessionID: String?
+  private var process: Process?
+
+  func send(_ text: String) {
+    let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !prompt.isEmpty, !isRunning else { return }
+    messages.append(AgentMessage(role: .user, text: prompt))
+    isRunning = true
+    let resume = sessionID
+    Task { await run(prompt: prompt, resume: resume) }
+  }
+
+  func stop() {
+    process?.terminate()
+    isRunning = false
+  }
+
+  func reset() {
+    stop()
+    sessionID = nil
+    messages.removeAll()
+  }
+
+  // MARK: Run one turn
+
+  private func run(prompt: String, resume: String?) async {
+    guard let claude = Self.claudePath else {
+      messages.append(AgentMessage(role: .error, text: "Couldn't find the `claude` CLI. Install Claude Code, then reopen Composer."))
+      isRunning = false
+      return
+    }
+    let mcp = #"{"mcpServers":{"canvas":{"type":"http","url":"http://127.0.0.1:\#(CanvasServer.port)/mcp"}}}"#
+    var args = ["-p", prompt,
+                "--output-format", "stream-json", "--verbose",
+                "--mcp-config", mcp,
+                "--allowedTools", "mcp__canvas__*",
+                "--append-system-prompt", Self.systemPrompt]
+    if let resume { args += ["--resume", resume] }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: claude)
+    process.arguments = args
+    process.currentDirectoryURL = Self.workdir
+    var env = ProcessInfo.processInfo.environment
+    env["PATH"] = Self.augmentedPATH(env["PATH"])
+    process.environment = env
+    let stdout = Pipe(), stderr = Pipe()
+    process.standardOutput = stdout
+    process.standardError = stderr
+    self.process = process
+
+    do {
+      try process.run()
+    } catch {
+      messages.append(AgentMessage(role: .error, text: "Couldn't launch claude: \(error.localizedDescription)"))
+      isRunning = false; self.process = nil; return
+    }
+
+    var sawOutput = false
+    do {
+      for try await line in stdout.fileHandleForReading.bytes.lines {
+        if Task.isCancelled { break }
+        if handleLine(line) { sawOutput = true }
+      }
+    } catch { /* stream closed */ }
+
+    if !sawOutput, let data = try? stderr.fileHandleForReading.readToEnd(),
+       let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+      messages.append(AgentMessage(role: .error, text: String(text.suffix(400))))
+    }
+    isRunning = false
+    self.process = nil
+  }
+
+  /// Parse one stream-json line into transcript updates. Returns true if it produced output.
+  @discardableResult
+  private func handleLine(_ line: String) -> Bool {
+    guard let data = line.data(using: .utf8),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+    switch obj["type"] as? String {
+    case "system":
+      if (obj["subtype"] as? String) == "init", let sid = obj["session_id"] as? String { sessionID = sid }
+      return false
+    case "assistant":
+      guard let message = obj["message"] as? [String: Any],
+            let content = message["content"] as? [[String: Any]] else { return false }
+      var produced = false
+      for item in content {
+        switch item["type"] as? String {
+        case "text":
+          let t = (item["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+          if !t.isEmpty { messages.append(AgentMessage(role: .assistant, text: t)); produced = true }
+        case "tool_use":
+          let name = (item["name"] as? String ?? "").replacingOccurrences(of: "mcp__canvas__", with: "")
+          messages.append(AgentMessage(role: .tool, text: toolSummary(name, item["input"] as? [String: Any])))
+          produced = true
+        default: break
+        }
+      }
+      return produced
+    case "result":
+      if let sid = obj["session_id"] as? String { sessionID = sid }
+      return true
+    default:
+      return false
+    }
+  }
+
+  private func toolSummary(_ name: String, _ input: [String: Any]?) -> String {
+    switch name {
+    case "get_canvas": return "read the board"
+    case "add_text": return "added a card · \(snippet(input?["text"]))"
+    case "add_shape": return "drew a \(input?["kind"] as? String ?? "shape")"
+    case "set_text": return "rewrote a card · \(snippet(input?["text"]))"
+    case "move_node": return "moved a card"
+    case "resize_node": return "resized a card"
+    case "delete_node": return "removed a card"
+    case "connect": return "connected two cards"
+    default: return name
+    }
+  }
+  private func snippet(_ value: Any?) -> String {
+    let s = (value as? String) ?? ""
+    return s.count > 44 ? String(s.prefix(44)) + "…" : s
+  }
+
+  // MARK: Environment
+
+  static let systemPrompt = """
+  You are a thinking partner working ON a spatial idea canvas with the user. Use the canvas tools \
+  (mcp__canvas__*) to read and shape the board directly — start by calling get_canvas. As you talk, \
+  evolve the board: add concise cards for new ideas, sharpen vague ones with set_text, connect \
+  related cards, remove dead ends. When you change the user's mind about an approach, keep the old \
+  card, add the new one, and connect them so the reasoning stays visible. Prefer many small surgical \
+  cards over walls of text. Keep chat replies short — let the canvas hold the detail.
+  """
+
+  static let workdir: URL = {
+    let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    let dir = base.appendingPathComponent("Composer/agent", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+  }()
+
+  static let claudePath: String? = {
+    let candidates = ["/opt/homebrew/bin/claude", NSHomeDirectory() + "/.local/bin/claude", "/usr/local/bin/claude"]
+    return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+  }()
+
+  static func augmentedPATH(_ existing: String?) -> String {
+    let extra = ["/opt/homebrew/bin", "/opt/homebrew/sbin", NSHomeDirectory() + "/.local/bin",
+                 "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    var seen = Set<String>(); var ordered: [String] = []
+    for path in extra + (existing?.split(separator: ":").map(String.init) ?? []) where seen.insert(path).inserted {
+      ordered.append(path)
+    }
+    return ordered.joined(separator: ":")
+  }
+}

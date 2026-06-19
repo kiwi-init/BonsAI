@@ -46,6 +46,8 @@ struct CanvasToolbar: View {
   var canCompile: Bool
   var isCompiling: Bool
   var canCopy: Bool
+  var agentOpen: Bool
+  var onAgent: () -> Void
   var onZoomOut: () -> Void
   var onZoomIn: () -> Void
   var onZoomReset: () -> Void
@@ -97,6 +99,11 @@ struct CanvasToolbar: View {
       }
       ToolButton(symbol: "doc.on.doc", help: "Copy self-contained  ⇧⌘C",
                  disabled: !canCopy, action: onCopy)
+
+      divider
+
+      ToolButton(symbol: "sparkles", help: "Chat with the agent on this board  ⌘J",
+                 active: agentOpen, action: onAgent)
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 5)

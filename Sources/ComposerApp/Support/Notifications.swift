@@ -40,6 +40,8 @@ extension Notification.Name {
   static let composerEnterEditing = Notification.Name("composerEnterEditing")
   /// ⌘1–⌘8 pick a canvas tool; userInfo["index"] is 1-based (1 = select, 2 = text, …).
   static let composerSelectTool = Notification.Name("composerSelectTool")
+  /// ⌘J toggles the in-canvas agent chat dock.
+  static let composerToggleAgent = Notification.Name("composerToggleAgent")
   /// Opens the in-panel Settings view (sidebar gear, ⌘, or the menu-bar item).
   static let composerShowSettings = Notification.Name("composerShowSettings")
   /// Fires after ⌘+/⌘− or Settings changes the editor point size.

@@ -121,6 +121,10 @@ final class FloatingPanel: NSPanel {
       NotificationCenter.default.post(name: .composerShowSettings, object: nil)
       return true
     }
+    if flags == [.command], raw == "j" {
+      NotificationCenter.default.post(name: .composerToggleAgent, object: nil)
+      return true
+    }
 
     if ComposerPreferences.handleEditorFontKeyEquivalent(event) { return true }
 

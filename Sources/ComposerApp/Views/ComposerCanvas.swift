@@ -19,6 +19,10 @@ struct ComposerCanvas: View {
   @State private var elementDraft: DragSegment?
   @State private var isSpacePressed = false
   @State private var viewportThrottle = ViewportEventThrottle()
+  /// Held as plain @State (not @StateObject) so the agent's streaming updates re-render only the
+  /// dock, not the whole canvas. Visibility is the separate `showAgent`.
+  @State private var agent = CanvasAgent()
+  @State private var showAgent = false
 
   // Board transform. Pointer locations are normalized back into board space so selection,
   // placement, and dragging keep working at every zoom level.
@@ -37,6 +41,7 @@ struct ComposerCanvas: View {
     .animation(Theme.Motion.accessory, value: store.isHistoryOpen)
     .animation(Theme.Motion.accessory, value: store.isSettingsOpen)
     .animation(Theme.Motion.accessory, value: store.compiledDraft)
+    .animation(Theme.Motion.accessory, value: showAgent)
     .onChange(of: isWorking) { _, working in
       NotificationCenter.default.post(name: .composerBusyChanged, object: nil, userInfo: ["busy": working])
     }
@@ -79,6 +84,7 @@ struct ComposerCanvas: View {
       historyListOverlay(in: proxy.size)
       sidebar
       toolbar(fit: inner)
+      agentDock
       commandBridge
     }
     .onAppear { lastViewportSize = inner; enterEditingForEntry(); CanvasBridge.shared.register(board) }
@@ -155,6 +161,9 @@ struct ComposerCanvas: View {
       }
       .onReceive(NotificationCenter.default.publisher(for: .composerSelectTool)) { note in
         if let index = note.userInfo?["index"] as? Int { selectTool(index: index) }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .composerToggleAgent)) { _ in
+        showAgent.toggle()
       }
   }
 
@@ -354,6 +363,8 @@ struct ComposerCanvas: View {
       canCompile: board.hasContent && !isWorking,
       isCompiling: isWorking,
       canCopy: board.hasContent,
+      agentOpen: showAgent,
+      onAgent: { showAgent.toggle() },
       onZoomOut: { zoom(0.8, anchoredAt: zoomAnchor) },
       onZoomIn: { zoom(1.25, anchoredAt: zoomAnchor) },
       onZoomReset: { withAnimation(Theme.Motion.accessory) { scale = 1 } },
@@ -363,6 +374,20 @@ struct ComposerCanvas: View {
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .padding(.top, 12)
+  }
+
+  @ViewBuilder
+  private var agentDock: some View {
+    if showAgent {
+      HStack(spacing: 0) {
+        Spacer(minLength: 0)
+        AgentDock(agent: agent, onClose: { showAgent = false })
+      }
+      .padding(.top, Theme.Size.toolbarGutter + 6)
+      .padding(.trailing, 14)
+      .padding(.bottom, 14)
+      .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
   }
 
   @ViewBuilder

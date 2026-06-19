@@ -1,0 +1,160 @@
+import SwiftUI
+
+/// The in-canvas chat with the agent that lives on the board. You talk; it edits the canvas as it
+/// goes (via the canvas MCP). Right-docked, dark glass, matches the panel aesthetic.
+struct AgentDock: View {
+  @ObservedObject var agent: CanvasAgent
+  var onClose: () -> Void
+  @State private var draft = ""
+  @FocusState private var inputFocused: Bool
+
+  var body: some View {
+    VStack(spacing: 0) {
+      header
+      Divider().overlay(Theme.Palette.separator)
+      transcript
+      inputBar
+    }
+    .frame(width: 360)
+    .frame(maxHeight: .infinity)
+    .background {
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color.black.opacity(0.5))
+        .background(VisualEffectBackground(material: .hudWindow, blending: .withinWindow, state: .active))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
+    }
+  }
+
+  // MARK: Header
+
+  private var header: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "sparkles").font(.body.weight(.semibold)).foregroundStyle(Color.accentColor)
+      Text("Agent").font(.body.weight(.semibold)).foregroundStyle(Theme.Palette.body)
+      if agent.isRunning {
+        ProgressView().controlSize(.small).scaleEffect(0.7)
+      }
+      Spacer()
+      iconButton("arrow.counterclockwise", help: "New conversation") { agent.reset(); draft = "" }
+      iconButton("xmark", help: "Close  ⌘J", action: onClose)
+    }
+    .padding(.horizontal, 14).frame(height: 46)
+  }
+
+  // MARK: Transcript
+
+  private var transcript: some View {
+    ScrollViewReader { proxy in
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 11) {
+          if agent.messages.isEmpty { emptyState }
+          ForEach(agent.messages) { bubble($0).id($0.id) }
+          if agent.isRunning { thinkingRow.id("thinking") }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .scrollIndicators(.never)
+      .onChange(of: agent.messages.count) { _, _ in scrollToEnd(proxy) }
+      .onChange(of: agent.isRunning) { _, running in if running { scrollToEnd(proxy) } }
+    }
+  }
+
+  private func scrollToEnd(_ proxy: ScrollViewProxy) {
+    withAnimation(.easeOut(duration: 0.18)) {
+      if agent.isRunning { proxy.scrollTo("thinking", anchor: .bottom) }
+      else { proxy.scrollTo(agent.messages.last?.id, anchor: .bottom) }
+    }
+  }
+
+  private var emptyState: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Think out loud.").font(.body.weight(.medium)).foregroundStyle(Theme.Palette.body)
+      Text("The agent reads your board and edits it as you talk — adding, sharpening, and connecting cards. Try “read my board and tell me what's missing.”")
+        .font(.caption).foregroundStyle(Theme.Palette.menuDesc).fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(.vertical, 8)
+  }
+
+  @ViewBuilder
+  private func bubble(_ message: AgentMessage) -> some View {
+    switch message.role {
+    case .user:
+      Text(message.text)
+        .font(.callout).foregroundStyle(Theme.Palette.body)
+        .padding(.horizontal, 11).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.accentColor.opacity(0.20)))
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    case .assistant:
+      Text(message.text)
+        .font(.callout).foregroundStyle(Theme.Palette.body).textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    case .tool:
+      HStack(spacing: 6) {
+        Image(systemName: "square.on.square.dashed").font(.caption2)
+        Text(message.text).font(.caption)
+      }
+      .foregroundStyle(Theme.Palette.title)
+      .frame(maxWidth: .infinity, alignment: .leading)
+    case .error:
+      Text(message.text)
+        .font(.caption).foregroundStyle(.orange)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var thinkingRow: some View {
+    HStack(spacing: 7) {
+      ProgressView().controlSize(.small).scaleEffect(0.6)
+      Text("thinking…").font(.caption).foregroundStyle(Theme.Palette.menuDesc)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  // MARK: Input
+
+  private var inputBar: some View {
+    HStack(alignment: .bottom, spacing: 8) {
+      TextField("Message the agent…", text: $draft, axis: .vertical)
+        .textFieldStyle(.plain)
+        .lineLimit(1...6)
+        .font(.callout)
+        .foregroundStyle(Theme.Palette.body)
+        .focused($inputFocused)
+        .onSubmit(submit)
+      if agent.isRunning {
+        iconButton("stop.fill", help: "Stop") { agent.stop() }
+      } else {
+        Button(action: submit) {
+          Image(systemName: "arrow.up.circle.fill")
+            .font(.title3)
+            .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Theme.Palette.title : Color.accentColor)
+        }
+        .buttonStyle(.plain)
+        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    }
+    .padding(.horizontal, 12).padding(.vertical, 10)
+    .background(Rectangle().fill(Color.white.opacity(0.04)))
+    .overlay(alignment: .top) { Rectangle().fill(Theme.Palette.separator).frame(height: 1) }
+    .onAppear { inputFocused = true }
+  }
+
+  private func submit() {
+    let text = draft
+    draft = ""
+    agent.send(text)
+    inputFocused = true
+  }
+
+  private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: symbol).font(.caption.weight(.medium))
+        .foregroundStyle(Theme.Palette.title).frame(width: 24, height: 24).contentShape(Rectangle())
+    }
+    .buttonStyle(.plain).help(help)
+  }
+}
