@@ -39,6 +39,7 @@ struct ComposerCanvas: View {
 
   var body: some View {
     GeometryReader { proxy in canvasRoot(proxy: proxy) }
+    .ignoresSafeArea()   // use the true window bounds so the card and dock share the same extent
     .animation(Theme.Motion.accessory, value: isWorking)
     .animation(Theme.Motion.accessory, value: store.isHistoryOpen)
     .animation(Theme.Motion.accessory, value: store.isSettingsOpen)
@@ -394,7 +395,9 @@ struct ComposerCanvas: View {
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .padding(.top, 12)
-    // Stay centered over the card, not the whole window, when the dock takes the right gutter.
+    // Center over the card, not the whole window: match the card's left (rail) and right (agent
+    // dock) insets so the toolbar stays centered over the work area in every state.
+    .padding(.leading, Theme.Size.railGutter)
     .padding(.trailing, showAgent ? Theme.Size.agentGutter : 0)
   }
 

@@ -8,6 +8,11 @@ struct AgentDock: View {
   @State private var draft = ""
   @FocusState private var inputFocused: Bool
 
+  /// Keep the grounding pill compact: at most 8 characters, then an ellipsis.
+  static func trimmed(_ name: String) -> String {
+    name.count > 8 ? String(name.prefix(8)) + "\u{2026}" : name
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       header
@@ -46,8 +51,7 @@ struct AgentDock: View {
       Button { agent.chooseDirectory() } label: {
         HStack(spacing: 5) {
           Image(systemName: "folder.fill").font(.system(size: 10.5))
-          Text(dir.lastPathComponent).font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
-            .frame(maxWidth: 96, alignment: .leading)
+          Text(Self.trimmed(dir.lastPathComponent)).font(.caption.weight(.medium)).lineLimit(1).fixedSize()
         }
         .foregroundStyle(Theme.Palette.body)
         .padding(.horizontal, 9).frame(height: 24)

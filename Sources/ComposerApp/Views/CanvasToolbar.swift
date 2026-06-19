@@ -166,16 +166,21 @@ private struct FolderToolButton: View {
   var action: () -> Void
   @State private var hovering = false
 
+  /// Keep the pill compact: show at most 8 characters, then an ellipsis.
+  static func trimmed(_ name: String) -> String {
+    name.count > 8 ? String(name.prefix(8)) + "\u{2026}" : name
+  }
+
   var body: some View {
     Button(action: action) {
       Group {
         if let folder {
           HStack(spacing: 6) {
             Image(systemName: "folder.fill").font(.system(size: 14, weight: .medium))
-            Text(folder)
+            Text(Self.trimmed(folder))
               .font(.system(size: 12.5, weight: .medium))
-              .lineLimit(1).truncationMode(.middle)
-              .frame(maxWidth: 120, alignment: .leading)
+              .lineLimit(1)
+              .fixedSize()
           }
           .foregroundStyle(Color.white.opacity(hovering ? 0.98 : 0.82))
           .padding(.horizontal, 10)
