@@ -17,6 +17,8 @@ under the new version heading.
   stored in the Keychain.
 - Settings sections for connectors and on-device intelligence (live model
   availability with a recheck).
+- A **configurable summon shortcut** — record your own global hotkey in
+  Settings → Shortcuts (⌃⌥Space stays the default).
 - A two-window workspace: the board with a companion dock that share a bottom edge.
 - GitHub Actions workflows: CI (release build + tests), tagged releases that
   publish a zipped `BonsAI.app`, and a changelog-entry check on every PR to `main`.

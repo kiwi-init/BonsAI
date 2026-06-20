@@ -62,4 +62,6 @@ extension Notification.Name {
   static let composerFontSizeChanged = Notification.Name("composerFontSizeChanged")
   /// Fires when MentionStyleCache gains a favicon/brand color (e.g. for the Settings Apps list).
   static let composerStyleCacheUpdated = Notification.Name("composerStyleCacheUpdated")
+  /// Re-bind the global summon hotkey after the user records a new shortcut in Settings.
+  static let composerShortcutChanged = Notification.Name("composerShortcutChanged")
 }

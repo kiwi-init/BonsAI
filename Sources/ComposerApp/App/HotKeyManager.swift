@@ -6,6 +6,17 @@ final class HotKeyManager {
   private var eventHandler: EventHandlerRef?
 
   func register() {
+    installHandler()
+    registerHotKey()
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(reregister),
+      name: .composerShortcutChanged, object: nil)
+  }
+
+  /// Re-bind the global hotkey after the user picks a new shortcut in Settings.
+  @objc private func reregister() { registerHotKey() }
+
+  private func installHandler() {
     var eventType = EventTypeSpec(
       eventClass: OSType(kEventClassKeyboard),
       eventKind: OSType(kEventHotKeyPressed)
@@ -37,11 +48,18 @@ final class HotKeyManager {
       nil,
       &eventHandler
     )
+  }
 
+  private func registerHotKey() {
+    if let hotKeyRef {
+      UnregisterEventHotKey(hotKeyRef)
+      self.hotKeyRef = nil
+    }
+    let shortcut = ShortcutStore.shared.shortcut
     let hotKeyID = EventHotKeyID(signature: "CMPR".fourCharCode, id: 1)
     RegisterEventHotKey(
-      UInt32(kVK_Space),
-      UInt32(controlKey | optionKey),
+      shortcut.keyCode,
+      shortcut.carbonModifiers,
       hotKeyID,
       GetApplicationEventTarget(),
       0,
