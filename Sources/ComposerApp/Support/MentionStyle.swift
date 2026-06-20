@@ -3,7 +3,7 @@ import AppKit
 // MARK: - Domain mapping
 
 enum MentionDomain {
-  static let map: [String: String] = ["@github": "github.com", "@context7": "context7.com"]
+  static let map: [String: String] = ["@github": "github.com", "@context7": "context7.com", "@linear": "linear.app", "@notion": "notion.so", "@sentry": "sentry.io", "@figma": "figma.com"]
   static func host(for id: String) -> String? { map[id] }
 }
 
@@ -130,6 +130,9 @@ final class MentionStyleCache {
         images[item.id] = image
         colors[item.id] = dominantColor(of: image)
       } else if item.id == "@browser", let image = localAppIcon(bundleID: "com.apple.Safari", fallbackPath: "/Applications/Safari.app") {
+        images[item.id] = image
+        colors[item.id] = dominantColor(of: image)
+      } else if item.id == "@xcode", let image = localAppIcon(bundleID: "com.apple.dt.Xcode", fallbackPath: "/Applications/Xcode.app") {
         images[item.id] = image
         colors[item.id] = dominantColor(of: image)
       } else if let host = MentionDomain.host(for: item.id) {

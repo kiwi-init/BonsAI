@@ -1,12 +1,38 @@
 import Foundation
 
-/// Browser connector. Starts Safari-only, but emits a browser-agnostic reference shape so
-/// additional browsers can reuse the same `@browser` token later.
+/// Browser connector. Enumerates open tabs across Safari and any Chromium browser (Chrome, Brave,
+/// Edge, Vivaldi, Opera, Arc, Chromium, Helium, …) via Apple Events (JXA) — they all share Chrome's
+/// scripting dictionary, so one parameterized script covers them. Each is `pgrep`-guarded, so only
+/// running browsers are queried. A fork that strips the scripting dictionary won't enumerate.
 struct BrowserService {
   private let maxRows = 12
 
-  func searchSafariTabs(query: String) async throws -> [AppSearchResult] {
-    let tabs = try await safariTabs()
+  /// Chromium browsers that keep Chrome's `windows/tabs/activeTabIndex/url/title` dictionary.
+  /// `name` is both the JXA application name and the `pgrep -x` process name.
+  private struct Chromium { let name: String; let bundleID: String }
+  private static let chromiumBrowsers = [
+    Chromium(name: "Google Chrome", bundleID: "com.google.Chrome"),
+    Chromium(name: "Google Chrome Canary", bundleID: "com.google.Chrome.canary"),
+    Chromium(name: "Brave Browser", bundleID: "com.brave.Browser"),
+    Chromium(name: "Microsoft Edge", bundleID: "com.microsoft.edgemac"),
+    Chromium(name: "Vivaldi", bundleID: "com.vivaldi.Vivaldi"),
+    Chromium(name: "Opera", bundleID: "com.operasoftware.Opera"),
+    Chromium(name: "Arc", bundleID: "company.thebrowser.Browser"),
+    Chromium(name: "Chromium", bundleID: "org.chromium.Chromium"),
+    Chromium(name: "Helium", bundleID: "net.imput.helium"),
+  ]
+
+  func searchTabs(query: String) async throws -> [AppSearchResult] {
+    var tabs: [BrowserTabReference] = []
+    var firstError: Error?
+    // A non-running browser returns [] (no error); a running-but-blocked one throws so the
+    // panel can surface the Automation-permission hint. Only fail if nothing was readable.
+    do { tabs += try await safariTabs() } catch { firstError = firstError ?? error }
+    for browser in Self.chromiumBrowsers {
+      do { tabs += try await chromiumTabs(browser) } catch { firstError = firstError ?? error }
+    }
+    if tabs.isEmpty, let firstError { throw firstError }
+
     let trimmed = query.trimmed
 
     let scored: [(BrowserTabReference, Int)] = tabs.compactMap { tab in
@@ -52,7 +78,8 @@ struct BrowserService {
 
   // MARK: - Safari
 
-  private struct SafariTab: Decodable {
+  /// Both browser scripts emit the same JSON tab shape, so they share one decoder type.
+  private struct DecodedTab: Decodable {
     let title: String
     let url: String
     let windowIndex: Int
@@ -65,11 +92,11 @@ struct BrowserService {
     guard running?.status == 0 else { return [] }
 
     let result = try await Shell.run(["osascript", "-l", "JavaScript", "-e", Self.safariTabsScript])
-    guard result.status == 0 else { throw safariError(result.stderr) }
+    guard result.status == 0 else { throw browserError(result.stderr, app: "Safari") }
 
     let text = result.stdout.trimmed
     guard !text.isEmpty else { return [] }
-    let decoded = try JSONDecoder().decode([SafariTab].self, from: Data(text.utf8))
+    let decoded = try JSONDecoder().decode([DecodedTab].self, from: Data(text.utf8))
     let captured = ISO8601DateFormatter().string(from: Date())
     return decoded.map {
       BrowserTabReference(
@@ -122,15 +149,79 @@ struct BrowserService {
   }
   """
 
-  private func safariError(_ stderr: String) -> AppSearchError {
+  // MARK: - Chromium (Chrome, Brave, Edge, Vivaldi, Opera, Arc, …)
+
+  private func chromiumTabs(_ browser: Chromium) async throws -> [BrowserTabReference] {
+    let running = try? await Shell.run(["pgrep", "-x", browser.name])
+    guard running?.status == 0 else { return [] }
+
+    let result = try await Shell.run(["osascript", "-l", "JavaScript", "-e", Self.chromiumScript(app: browser.name)])
+    guard result.status == 0 else { throw browserError(result.stderr, app: browser.name) }
+
+    let text = result.stdout.trimmed
+    guard !text.isEmpty else { return [] }
+    let decoded = try JSONDecoder().decode([DecodedTab].self, from: Data(text.utf8))
+    let captured = ISO8601DateFormatter().string(from: Date())
+    return decoded.map {
+      BrowserTabReference(
+        browser: browser.name,
+        bundleID: browser.bundleID,
+        title: $0.title,
+        url: $0.url,
+        windowIndex: $0.windowIndex,
+        tabIndex: $0.tabIndex,
+        isActive: $0.isActive,
+        capturedAt: captured)
+    }
+  }
+
+  // Every Chromium browser exposes the same tab URL/title/activeTabIndex dictionary — no extension
+  // needed. `activeTabIndex` is 1-based, matching the indices we emit. The app name is interpolated
+  // from the fixed `chromiumBrowsers` list (no injection surface).
+  private static func chromiumScript(app: String) -> String {
+    """
+    function run() {
+      const app = Application('\(app)');
+      const windows = app.windows();
+      const tabs = [];
+
+      for (let wi = 0; wi < windows.length; wi++) {
+        const win = windows[wi];
+        let activeIndex = -1;
+        try { activeIndex = win.activeTabIndex(); } catch (e) {}
+
+        const winTabs = win.tabs();
+        for (let ti = 0; ti < winTabs.length; ti++) {
+          const tab = winTabs[ti];
+          let title = '';
+          let url = '';
+          try { title = tab.title() || ''; } catch (e) {}
+          try { url = tab.url() || ''; } catch (e) {}
+          if (!title && !url) continue;
+          tabs.push({
+            title: title,
+            url: url,
+            windowIndex: wi + 1,
+            tabIndex: ti + 1,
+            isActive: ti + 1 === activeIndex
+          });
+        }
+      }
+
+      return JSON.stringify(tabs);
+    }
+    """
+  }
+
+  private func browserError(_ stderr: String, app: String) -> AppSearchError {
     let text = stderr.trimmed
     if text.contains("-1743") || text.localizedCaseInsensitiveContains("not authorized") {
-      return .message("Allow Composer to control Safari in System Settings → Privacy & Security → Automation.")
+      return .message("Allow Composer to control \(app) in System Settings → Privacy & Security → Automation.")
     }
     if text.localizedCaseInsensitiveContains("execution error") {
       return .message(String(text.prefix(160)))
     }
-    return .message(text.isEmpty ? "Could not read Safari tabs." : String(text.prefix(160)))
+    return .message(text.isEmpty ? "Could not read \(app) tabs." : String(text.prefix(160)))
   }
 
   // MARK: - Result shaping
@@ -198,5 +289,5 @@ private func displayTitle(_ reference: BrowserTabReference) -> String {
   let title = reference.title.trimmed
   if !title.isEmpty { return title }
   if !reference.host.isEmpty { return reference.host }
-  return reference.url.isEmpty ? "Safari tab" : reference.url
+  return reference.url.isEmpty ? "Browser tab" : reference.url
 }

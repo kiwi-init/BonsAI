@@ -12,6 +12,9 @@ import Network
 final class CanvasServer {
   static let shared = CanvasServer()
   static let port: UInt16 = 7337
+  /// The server is loopback-only, but an agent/tool bug should still not be able to grow an
+  /// in-memory request buffer without bound. Canvas mutations are deliberately tiny JSON.
+  private static let maximumRequestBytes = 1 * 1_024 * 1_024
 
   private var listener: NWListener?
   private let queue = DispatchQueue(label: "dev.jow.Composer.canvas-server")
@@ -41,8 +44,15 @@ final class CanvasServer {
       guard let self else { return }
       var buffer = buffer
       if let data { buffer.append(data) }
-      if let request = HTTPRequest(buffer), buffer.count - request.bodyStart >= request.contentLength {
+      guard buffer.count <= Self.maximumRequestBytes else {
+        self.send(connection, status: "413 Payload Too Large", json: ["ok": false, "error": "request too large"])
+        return
+      }
+      if let request = HTTPRequest(buffer), request.bodyStart + request.contentLength <= Self.maximumRequestBytes,
+         buffer.count - request.bodyStart >= request.contentLength {
         self.route(request, buffer: buffer, on: connection)
+      } else if let request = HTTPRequest(buffer), request.bodyStart + request.contentLength > Self.maximumRequestBytes {
+        self.send(connection, status: "413 Payload Too Large", json: ["ok": false, "error": "request too large"])
       } else if isComplete || error != nil {
         self.send(connection, status: "400 Bad Request", json: ["ok": false, "error": "bad request"])
       } else {
@@ -144,6 +154,7 @@ private struct HTTPRequest {
     }
     headers = parsed
     bodyStart = separator.upperBound - buffer.startIndex
-    contentLength = Int(parsed["content-length"] ?? "0") ?? 0
+    guard let length = Int(parsed["content-length"] ?? "0"), length >= 0 else { return nil }
+    contentLength = length
   }
 }

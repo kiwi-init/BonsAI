@@ -19,7 +19,7 @@ final class CanvasBridge {
       CanvasGraph.Node(
         id: card.id.uuidString,
         kind: card.elementKind.rawValue,
-        text: board.interaction(for: card.id).plainText,
+        text: board.plainText(for: card),
         x: card.x, y: card.y, w: card.w, h: card.h, z: card.z,
         group: card.groupID?.uuidString,
         locked: card.locked,

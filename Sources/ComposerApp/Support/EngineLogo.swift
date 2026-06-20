@@ -36,11 +36,12 @@ struct EngineLogo: View {
 /// Codex), falling back to the Apple Intelligence mark when the user has neither enabled.
 struct AgentEngineIcon: View {
   var size: CGFloat = 15
+  @ObservedObject private var capabilities = EngineCapabilityStore.shared
 
   var body: some View {
-    if EnginePreferences.isEnabled(.claude) {
+    if EnginePreferences.isEnabled(.claude), capabilities.isAvailable(.claude) {
       EngineLogo(engine: .claude)
-    } else if EnginePreferences.isEnabled(.codex) {
+    } else if EnginePreferences.isEnabled(.codex), capabilities.isAvailable(.codex) {
       EngineLogo(engine: .codex)
     } else {
       Image(systemName: "apple.intelligence")

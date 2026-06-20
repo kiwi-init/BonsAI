@@ -239,10 +239,7 @@ final class CanvasAgent: ObservableObject {
     return dir
   }()
 
-  static let claudePath: String? = {
-    let candidates = ["/opt/homebrew/bin/claude", NSHomeDirectory() + "/.local/bin/claude", "/usr/local/bin/claude"]
-    return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
-  }()
+  static let claudePath: String? = CommandLineToolLocator.executableURL(for: .claude)?.path
 
   static func augmentedPATH(_ existing: String?) -> String {
     let extra = ["/opt/homebrew/bin", "/opt/homebrew/sbin", NSHomeDirectory() + "/.local/bin",

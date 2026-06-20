@@ -10,6 +10,20 @@ enum MentionKind {
   case clipboard
 }
 
+/// Groups connector apps in Settings (and the picker) by where their context comes from:
+/// the local machine vs. an external service.
+enum ConnectorCategory: String, CaseIterable {
+  case local      // reads this Mac — files, tabs, build results — no account
+  case service    // reaches an external tool/API
+
+  var title: String {
+    switch self {
+    case .local: "On this Mac"
+    case .service: "Services"
+    }
+  }
+}
+
 /// One entry in the `@` autocomplete. `id` is the raw token that gets serialized
 /// back into the self-contained text (e.g. "@context7").
 struct MentionItem: Identifiable, Hashable {
@@ -23,10 +37,18 @@ struct MentionItem: Identifiable, Hashable {
 
 enum MentionCatalog {
   static let all: [MentionItem] = [
-    .init(id: "@context7", title: "context7", label: "Context7", subtitle: "Live library docs", symbol: "books.vertical", kind: .app),
-    .init(id: "@github", title: "github", label: "GitHub", subtitle: "Issue or PR URL", symbol: "chevron.left.forwardslash.chevron.right", kind: .app),
+    // On this Mac — local context, no account
     .init(id: "@finder", title: "finder", label: "Finder", subtitle: "Local file or folder", symbol: "folder", kind: .app),
-    .init(id: "@browser", title: "browser", label: "Browser", subtitle: "Open Safari tab", symbol: "safari", kind: .app),
+    .init(id: "@browser", title: "browser", label: "Browser", subtitle: "Open Safari or Chromium tab", symbol: "safari", kind: .app),
+    .init(id: "@xcode", title: "xcode", label: "Xcode", subtitle: "Build errors & test failures", symbol: "hammer", kind: .app),
+    // Services — external tools and APIs
+    .init(id: "@github", title: "github", label: "GitHub", subtitle: "Issue or PR URL", symbol: "chevron.left.forwardslash.chevron.right", kind: .app),
+    .init(id: "@context7", title: "context7", label: "Context7", subtitle: "Live library docs", symbol: "books.vertical", kind: .app),
+    .init(id: "@linear", title: "linear", label: "Linear", subtitle: "Issue context", symbol: "checklist", kind: .app),
+    .init(id: "@notion", title: "notion", label: "Notion", subtitle: "Pages, specs, docs", symbol: "doc.text", kind: .app),
+    .init(id: "@sentry", title: "sentry", label: "Sentry", subtitle: "Issues & stack traces", symbol: "exclamationmark.triangle", kind: .app),
+    .init(id: "@figma", title: "figma", label: "Figma", subtitle: "Frame from a URL", symbol: "paintpalette", kind: .app),
+    // Skills + clipboard
     .init(id: "@build-macos-apps", title: "build-macos-apps", label: "build-macos-apps", subtitle: "Native macOS skill", symbol: "macwindow", kind: .skill),
     .init(id: "@build-ios-apps", title: "build-ios-apps", label: "build-ios-apps", subtitle: "SwiftUI iOS skill", symbol: "iphone", kind: .skill),
     .init(id: "@frontend-design", title: "frontend-design", label: "frontend-design", subtitle: "Polished web UI skill", symbol: "paintbrush", kind: .skill),
@@ -35,6 +57,22 @@ enum MentionCatalog {
 
   /// External connector apps, in display order.
   static let apps: [MentionItem] = all.filter { $0.kind == .app }
+
+  /// Which category each connector belongs to (see ConnectorCategory), keyed by token id.
+  static let appCategory: [String: ConnectorCategory] = [
+    "@finder": .local, "@browser": .local, "@xcode": .local,
+    "@github": .service, "@context7": .service, "@linear": .service, "@notion": .service, "@sentry": .service, "@figma": .service,
+  ]
+
+  static func category(for id: String) -> ConnectorCategory? { appCategory[id] }
+
+  /// Connector apps grouped by category, in category order, skipping empty groups.
+  static var appsByCategory: [(category: ConnectorCategory, items: [MentionItem])] {
+    ConnectorCategory.allCases.compactMap { category in
+      let items = apps.filter { appCategory[$0.id] == category }
+      return items.isEmpty ? nil : (category, items)
+    }
+  }
 
   static func filtered(_ query: String) -> [MentionItem] {
     guard !query.isEmpty else { return all }
