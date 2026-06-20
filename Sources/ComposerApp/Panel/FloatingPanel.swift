@@ -1,21 +1,25 @@
 import AppKit
 
-/// Non-activating, always-on-top, chromeless panel that can still take keystrokes.
+/// Chromeless, normal-level window for BonsAI's board (and its auxiliary dock / settings siblings).
+/// Borderless windows return false from `canBecomeKey` by default — hence the override below.
 final class FloatingPanel: NSPanel {
+  /// The board is the workspace's primary panel. Agent and Settings are separate sibling panels
+  /// whose Escape action should close only themselves.
+  var isAuxiliaryPanel = false
   /// MANDATORY: a borderless / non-activating panel returns false by default,
   /// so without this the text canvas never gets an insertion point.
   override var canBecomeKey: Bool { true }
-  /// Not required for typing. false → the user's previous app keeps main-window status.
-  override var canBecomeMain: Bool { false }
+  /// The board is a normal main window; the auxiliary dock / settings panels are not.
+  override var canBecomeMain: Bool { !isAuxiliaryPanel }
 
   init(contentRect: NSRect) {
     super.init(
       contentRect: contentRect,
-      styleMask: [.borderless, .nonactivatingPanel],
+      styleMask: [.borderless],   // a normal (activating) window, not a floating overlay panel
       backing: .buffered,
       defer: false
     )
-    isFloatingPanel = true
+    isFloatingPanel = false
     becomesKeyOnlyIfNeeded = false
     hidesOnDeactivate = false
     // The canvas owns dragging (pan the board, move cards). Background window-drag would
@@ -23,8 +27,10 @@ final class FloatingPanel: NSPanel {
     isMovableByWindowBackground = false
     isMovable = false
     isReleasedWhenClosed = false
-    level = .floating
-    collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+    level = .normal   // a normal Dock-app window, not always-on-top
+    // Summon onto whatever Space the user is on (via the hotkey) rather than yanking them to
+    // another Space; still allowed to appear over a full-screen app.
+    collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
     animationBehavior = .none
 
     isOpaque = false
@@ -41,11 +47,15 @@ final class FloatingPanel: NSPanel {
 
   /// Escape dismisses when the panel itself is first responder.
   override func cancelOperation(_ sender: Any?) {
-    (delegate as? PanelController)?.hide()
+    if isAuxiliaryPanel {
+      NotificationCenter.default.post(name: .composerDismissDock, object: nil)
+    } else {
+      (delegate as? PanelController)?.hide()
+    }
   }
 
-  /// The app is non-activating, so app-menu shortcuts don't fire. Catch Composer
-  /// shortcuts at the key window level instead.
+  /// BonsAI has no menu bar, so app-menu shortcuts don't fire. Catch the board's
+  /// shortcuts at the key-window level instead.
   override func performKeyEquivalent(with event: NSEvent) -> Bool {
     let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
     let raw = event.charactersIgnoringModifiers?.lowercased()
