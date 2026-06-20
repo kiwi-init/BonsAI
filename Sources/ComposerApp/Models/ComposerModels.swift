@@ -1,7 +1,7 @@
 import Foundation
 
 /// The headless CLI used to refine selected text.
-enum HeadlessEngine: String, Codable, CaseIterable, Identifiable {
+enum HeadlessEngine: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
   case claude
   case codex
 

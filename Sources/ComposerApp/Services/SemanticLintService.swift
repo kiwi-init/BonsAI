@@ -161,15 +161,20 @@ private struct ConnectorLintContext {
   let hasGitHub: Bool
   let hasFinder: Bool
   let hasBrowser: Bool
+  let hasLinear: Bool
+  let hasNotion: Bool
+  let hasSentry: Bool
+  let hasFigma: Bool
+  let hasXcode: Bool
 
   private var resolvedConnectorCount: Int {
-    [hasContext7, hasGitHub, hasFinder, hasBrowser].filter { $0 }.count
+    [hasContext7, hasGitHub, hasFinder, hasBrowser, hasLinear, hasNotion, hasSentry, hasFigma, hasXcode].filter { $0 }.count
   }
 
   init(plainText: String) {
     let tokens = AppToken.scan(plainText)
     var lines: [String] = []
-    var context7 = false, github = false, finder = false, browser = false
+    var context7 = false, github = false, finder = false, browser = false, linear = false, notion = false, sentry = false, figma = false, xcode = false
 
     for entry in tokens {
       switch entry.selection {
@@ -185,6 +190,22 @@ private struct ConnectorLintContext {
       case let .browser(reference):
         browser = true
         lines.append("- Browser tab selected: \(reference.title.isEmpty ? reference.url : reference.title), URL \(reference.url).")
+      case let .linear(reference):
+        linear = true
+        lines.append("- Linear issue selected: \(reference.identifier) (id \(reference.id)).")
+      case let .notion(reference):
+        notion = true
+        lines.append("- Notion page selected: \(reference.title.isEmpty ? reference.id : reference.title).")
+      case let .sentry(reference):
+        sentry = true
+        lines.append("- Sentry issue selected: \(reference.shortID) (org \(reference.org)).")
+      case let .figma(reference):
+        figma = true
+        let label = reference.name.isEmpty ? reference.fileKey : reference.name
+        lines.append("- Figma frame selected: \(label) (key \(reference.fileKey)).")
+      case let .xcode(reference):
+        xcode = true
+        lines.append("- Xcode result selected: \(reference.resultPath).")
       case .none:
         lines.append("- Unresolved connector token present: \(entry.appID).")
       }
@@ -195,6 +216,11 @@ private struct ConnectorLintContext {
     self.hasGitHub = github
     self.hasFinder = finder
     self.hasBrowser = browser
+    self.hasLinear = linear
+    self.hasNotion = notion
+    self.hasSentry = sentry
+    self.hasFigma = figma
+    self.hasXcode = xcode
   }
 
   func shouldKeep(_ flag: LintFlag) -> Bool {
@@ -207,6 +233,11 @@ private struct ConnectorLintContext {
       if hasGitHub, containsAny(lower, ["github", "issue", "issues", "pr", "prs", "pull request", "pull requests", "ticket", "acceptance criteria"]) { return false }
       if hasFinder, containsAny(lower, ["finder", "file", "files", "folder", "folders", "path", "local", "contents", "listing"]) { return false }
       if hasBrowser, containsAny(lower, ["browser", "tab", "page", "url", "site", "website", "link", "host", "title"]) { return false }
+      if hasLinear, containsAny(lower, ["linear", "issue", "issues", "ticket", "tickets", "acceptance criteria", "spec", "story", "task"]) { return false }
+      if hasNotion, containsAny(lower, ["notion", "page", "doc", "docs", "spec", "rfc", "document", "wiki", "notes"]) { return false }
+      if hasSentry, containsAny(lower, ["sentry", "error", "errors", "exception", "stack trace", "stacktrace", "crash", "bug"]) { return false }
+      if hasFigma, containsAny(lower, ["figma", "frame", "design", "mockup", "screen", "ui", "component", "layout", "wireframe"]) { return false }
+      if hasXcode, containsAny(lower, ["xcode", "build", "compile", "compiler", "test", "tests", "failure", "failing"]) { return false }
 
       let pronouns: Set<String> = ["it", "this", "that", "these", "those", "this one", "that one", "the above", "above"]
       if resolvedConnectorCount == 1, pronouns.contains(lower) { return false }

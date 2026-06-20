@@ -32,15 +32,28 @@ enum Theme {
     /// visible frame, centered — Composer is a near-fullscreen canvas. The card auto-derives
     /// from the window size minus the gutters in the canvas layout.
     static let screenFraction: CGFloat = 0.95
-    /// Transparent left margin of the window where the rail floats outside the card.
-    static let railGutter: CGFloat = 84
-    /// Transparent top margin of the window where the canvas toolbar floats above the card.
-    static let toolbarGutter: CGFloat = 60
-    /// Width of the right gutter the card yields to when the agent dock is open, so the dock
-    /// floats beside the card (like the rail/toolbar) instead of covering it. Dock width + margins.
-    static let agentDockWidth: CGFloat = 360
-    static let agentGutter: CGFloat = 392
-
+    /// Main-surface measurements are proportions of the current viewport. They deliberately live
+    /// here instead of as point constants: opening the dock must redistribute the *actual* window
+    /// width, whether Composer is on a compact laptop display or a wide external screen.
+    static func railGutter(in windowWidth: CGFloat) -> CGFloat {
+      // This owns the rail itself *and* its breathing room before the board card begins.
+      (max(windowWidth, 0) * 0.090).rounded()
+    }
+    static func railInset(in windowWidth: CGFloat) -> CGFloat {
+      (max(windowWidth, 0) * 0.014).rounded()
+    }
+    static func toolbarGutter(in windowHeight: CGFloat) -> CGFloat {
+      (max(windowHeight, 0) * 0.060).rounded()
+    }
+    static func toolbarInset(in windowHeight: CGFloat) -> CGFloat {
+      (max(windowHeight, 0) * 0.012).rounded()
+    }
+    static func dockMargin(in windowWidth: CGFloat) -> CGFloat {
+      (max(windowWidth, 0) * 0.009).rounded()
+    }
+    static func dockWidth(in windowWidth: CGFloat) -> CGFloat {
+      (max(windowWidth, 0) * 0.24).rounded()
+    }
     static let actionBarHeight: CGFloat = 34
     static let actionBarItemHeight: CGFloat = 28
     static let menuWidth: CGFloat = 320

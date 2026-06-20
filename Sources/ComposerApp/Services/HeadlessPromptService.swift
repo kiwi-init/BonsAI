@@ -44,38 +44,24 @@ struct HeadlessPromptService {
   }
 
   private func run(prompt: String, engine: HeadlessEngine) async throws -> String {
-    try await Task.detached(priority: .userInitiated) {
-      let process = Process()
-      let outPipe = Pipe()
-      let errPipe = Pipe()
-
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-      switch engine {
-      case .claude:
-        process.arguments = ["claude", "-p", prompt]
-      case .codex:
-        process.arguments = ["codex", "exec", "--ask-for-approval", "never", prompt]
-      }
-      process.environment = Shell.augmentedEnvironment()
-      process.standardOutput = outPipe
-      process.standardError = errPipe
-
-      do {
-        try process.run()
-      } catch {
-        throw HeadlessPromptError.failed("Could not launch \(engine.title): \(error.localizedDescription)")
-      }
-      process.waitUntilExit()
-
-      let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmed ?? ""
-      let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmed ?? ""
-
-      guard process.terminationStatus == 0 else {
-        throw HeadlessPromptError.failed(err.isEmpty ? "\(engine.title) exited with \(process.terminationStatus)." : err)
-      }
-      guard !out.isEmpty else { throw HeadlessPromptError.failed("\(engine.title) returned no text.") }
-      return out
-    }.value
+    guard let executable = CommandLineToolLocator.executableURL(for: engine) else {
+      throw HeadlessPromptError.failed("\(engine.title) CLI is not installed. Check Settings to install or re-detect it.")
+    }
+    let arguments: [String]
+    switch engine {
+    case .claude:
+      arguments = [executable.path, "-p", prompt]
+    case .codex:
+      arguments = [executable.path, "exec", "--ask-for-approval", "never", prompt]
+    }
+    let result = try await Shell.run(arguments)
+    let out = result.stdout.trimmed
+    let err = result.stderr.trimmed
+    guard result.status == 0 else {
+      throw HeadlessPromptError.failed(err.isEmpty ? "\(engine.title) exited with \(result.status)." : err)
+    }
+    guard !out.isEmpty else { throw HeadlessPromptError.failed("\(engine.title) returned no text.") }
+    return out
   }
 }
 

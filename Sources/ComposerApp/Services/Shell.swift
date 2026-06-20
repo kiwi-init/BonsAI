@@ -16,13 +16,15 @@ enum Shell {
       process.standardOutput = outPipe
       process.standardError = errPipe
       try process.run()
-      // Read before waiting so a large pipe can't deadlock on a full buffer.
-      let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-      let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+      // Drain both pipes concurrently. Reading stdout to EOF and only then reading stderr can
+      // deadlock if a child fills stderr before it closes stdout (common with verbose CLI errors).
+      async let outData = outPipe.fileHandleForReading.readToEnd()
+      async let errData = errPipe.fileHandleForReading.readToEnd()
       process.waitUntilExit()
+      let (stdoutData, stderrData) = try await (outData, errData)
       return Result(
-        stdout: String(data: outData, encoding: .utf8) ?? "",
-        stderr: String(data: errData, encoding: .utf8) ?? "",
+        stdout: String(data: stdoutData ?? Data(), encoding: .utf8) ?? "",
+        stderr: String(data: stderrData ?? Data(), encoding: .utf8) ?? "",
         status: process.terminationStatus)
     }.value
   }

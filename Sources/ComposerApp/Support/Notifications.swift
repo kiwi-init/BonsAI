@@ -1,5 +1,12 @@
 import Foundation
 
+/// The two auxiliary panels are real AppKit windows, coordinated with the board window rather
+/// than rendered inside its SwiftUI hierarchy.
+enum ComposerDockKind: String {
+  case agent
+  case settings
+}
+
 extension Notification.Name {
   static let composerToggleWindow = Notification.Name("composerToggleWindow")
   static let composerDismiss = Notification.Name("composerDismiss")
@@ -40,10 +47,17 @@ extension Notification.Name {
   static let composerEnterEditing = Notification.Name("composerEnterEditing")
   /// ⌘1–⌘8 pick a canvas tool; userInfo["index"] is 1-based (1 = select, 2 = text, …).
   static let composerSelectTool = Notification.Name("composerSelectTool")
-  /// ⌘J toggles the in-canvas agent chat dock.
+  /// ⌘J toggles the separate agent panel.
   static let composerToggleAgent = Notification.Name("composerToggleAgent")
-  /// Opens the in-panel Settings view (sidebar gear, ⌘, or the menu-bar item).
+  /// Opens the separate Settings panel (sidebar gear, ⌘, or the menu-bar item).
   static let composerShowSettings = Notification.Name("composerShowSettings")
+  /// Requests an auxiliary panel. `object` is the active `CanvasAgent` for `.agent` and
+  /// `userInfo["kind"]` is a `ComposerDockKind.rawValue`.
+  static let composerPresentDock = Notification.Name("composerPresentDock")
+  /// Requests the currently-visible auxiliary panel to close.
+  static let composerDismissDock = Notification.Name("composerDismissDock")
+  /// Sent after the panel has closed, so the board can update its toolbar/overlay state.
+  static let composerDockDismissed = Notification.Name("composerDockDismissed")
   /// Fires after ⌘+/⌘− or Settings changes the editor point size.
   static let composerFontSizeChanged = Notification.Name("composerFontSizeChanged")
   /// Fires when MentionStyleCache gains a favicon/brand color (e.g. for the Settings Apps list).

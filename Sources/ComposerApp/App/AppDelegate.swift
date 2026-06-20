@@ -6,26 +6,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let hotKeyManager = HotKeyManager()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    // Menu-bar-only by default; COMPOSER_DEBUG_DOCK=1 promotes to a regular app
-    // (Dock icon) purely so screenshot/automation tools can see it during testing.
-    let debugDock = ProcessInfo.processInfo.environment["COMPOSER_DEBUG_DOCK"] == "1"
-    NSApp.setActivationPolicy(debugDock ? .regular : .accessory)   // LSUIElement is the static floor
-    if debugDock { NSApp.activate(ignoringOtherApps: true) }
+    // BonsAI is a normal Dock app: a real Dock icon and Cmd-Tab presence, with a sticky window
+    // that's also summonable by global hotkey.
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
     hotKeyManager.register()
+    _ = EngineCapabilityStore.shared   // first-ever launch detects + persists; later launches restore known state (Settings → Recheck re-runs)
     MentionStyleCache.shared.preload()
     CanvasServer.shared.start()   // local API so a CLI / MCP server can read & drive the canvas
     NotificationCenter.default.addObserver(
       self, selector: #selector(toggle),
       name: .composerToggleWindow, object: nil)
 
-    // First launch: surface the panel so the menu-bar-only app isn't invisible.
+    // Surface the board on launch.
     panelController.show()
   }
 
-  // Never NSApp.activate(ignoringOtherApps:) — it steals focus and breaks the feel.
+  /// Clicking the Dock icon when nothing is visible re-summons the board (standard Dock behavior).
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+    if !hasVisibleWindows { panelController.show() }
+    return true
+  }
+
   @objc private func toggle() { panelController.toggle() }
 
-  /// Summon the panel (if hidden) and open its in-panel Settings — never a separate window.
+  /// Summon the board (if hidden) and open its companion Settings window.
   func showSettings() {
     panelController.show()
     NotificationCenter.default.post(name: .composerShowSettings, object: nil)

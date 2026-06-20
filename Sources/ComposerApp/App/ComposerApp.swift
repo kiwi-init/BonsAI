@@ -5,16 +5,18 @@ struct ComposerApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
   var body: some Scene {
-    MenuBarExtra("Composer", systemImage: "square.and.pencil") {
-      Button("Show Composer") { appDelegate.panelController.toggle() }
-        .keyboardShortcut(.space, modifiers: [.control, .option])
-      Divider()
-      Button("Settings\u{2026}") { appDelegate.showSettings() }
-        .keyboardShortcut(",", modifiers: .command)
-      Divider()
-      Button("Quit Composer") { NSApp.terminate(nil) }
-        .keyboardShortcut("q", modifiers: .command)
+    // BonsAI's UI is the AppKit board + dock owned by PanelController; this SwiftUI App only
+    // hosts the delegate. There is no menu-bar item — the board is summoned by the global hotkey
+    // (HotKeyManager) or the Dock icon. The placeholder Settings scene exists solely so the
+    // standard Cmd-, routes to the in-board settings instead of opening a separate window.
+    Settings {
+      EmptyView()
     }
-    .menuBarExtraStyle(.menu)
+    .commands {
+      CommandGroup(replacing: .appSettings) {
+        Button("Settings\u{2026}") { appDelegate.showSettings() }
+          .keyboardShortcut(",", modifiers: .command)
+      }
+    }
   }
 }

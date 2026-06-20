@@ -49,6 +49,10 @@ final class DumpStore: ObservableObject {
   let container: ModelContainer
   private var context: ModelContext { container.mainContext }
   private var saveWork: DispatchWorkItem?
+  /// The next save asks the board for one fresh snapshot when the debounce fires. Keeping a
+  /// closure (rather than an array captured by every queued work item) prevents fast typing from
+  /// retaining many whole-board copies until their cancelled timers drain.
+  private var pendingSnapshot: (() -> [CardState])?
 
   /// Newest first.
   @Published private(set) var dumps: [Dump] = []
@@ -56,7 +60,7 @@ final class DumpStore: ObservableObject {
   @Published private(set) var currentID: PersistentIdentifier?
   /// The history list overlay is showing (the editor coordinator dismisses it on Esc).
   @Published var isHistoryOpen = false
-  /// The in-panel Settings overlay is showing (also dismissed on Esc).
+  /// The separate Settings panel is showing (also dismissed on Esc).
   @Published var isSettingsOpen = false
   /// The compiled-draft overlay's text (nil = closed). Board-level, transient UI — kept
   /// here so the editor coordinator's Esc chain can dismiss it like the other overlays.
@@ -106,9 +110,14 @@ final class DumpStore: ObservableObject {
   // MARK: Editing
 
   /// Debounced autosave of the canvas's cards into the current board.
-  func scheduleUpdate(cards: [CardState]) {
+  func scheduleUpdate(snapshot: @escaping () -> [CardState]) {
+    pendingSnapshot = snapshot
     saveWork?.cancel()
-    let work = DispatchWorkItem { [weak self] in self?.commit(cards: cards) }
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, let cards = self.pendingSnapshot?() else { return }
+      self.pendingSnapshot = nil
+      self.commit(cards: cards)
+    }
     saveWork = work
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
   }
@@ -116,6 +125,7 @@ final class DumpStore: ObservableObject {
   /// Force a pending save now — call before navigating away so nothing is lost.
   func flush(cards: [CardState]) {
     saveWork?.cancel()
+    pendingSnapshot = nil
     commit(cards: cards)
   }
 
