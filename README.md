@@ -2,7 +2,7 @@
 
 **A bucket for thoughts and ideas — and the shortest path from a thought to a well-formed prompt.**
 
-<img width="2000" height="1301" alt="file-45bfc4bb9d4e1974cad8fdd22d89c339" src="https://github.com/user-attachments/assets/7a1185d8-aafd-4500-81b0-d8191bf7b30f" />
+<img width="3420" height="2224" alt="image" src="https://github.com/user-attachments/assets/eca1bad8-7cdd-4655-a342-9483406740db" />
 
 BonsAI is a small, native macOS app. It gives you a board of cards where you
 capture half-formed ideas, pull in just-enough context with **connectors**
