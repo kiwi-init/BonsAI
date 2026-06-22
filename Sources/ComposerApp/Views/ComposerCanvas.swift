@@ -11,6 +11,7 @@ struct ComposerCanvas: View {
   @StateObject private var board = BoardViewModel()
   @ObservedObject private var engineCapabilities = EngineCapabilityStore.shared
   @ObservedObject private var workspaceLayout = WorkspaceLayout.shared
+  @ObservedObject private var userFacingErrors = UserFacingErrorStore.shared
 
   @State private var tool: CanvasTool = .select
   @State private var isWorking = false
@@ -48,6 +49,9 @@ struct ComposerCanvas: View {
     .animation(Theme.Motion.accessory, value: isWorking)
     .animation(Theme.Motion.accessory, value: store.isHistoryOpen)
     .animation(Theme.Motion.accessory, value: store.compiledDraft)
+    .onChange(of: userFacingErrors.latest) { _, notice in
+      if notice != nil { showLatestReportedError() }
+    }
     .onChange(of: isWorking) { _, working in
       NotificationCenter.default.post(name: .composerBusyChanged, object: nil, userInfo: ["busy": working])
     }
@@ -98,7 +102,12 @@ struct ComposerCanvas: View {
       commandBridge
     }
     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-    .onAppear { lastViewportSize = inner; enterEditingForEntry(); CanvasBridge.shared.register(board) }
+    .onAppear {
+      lastViewportSize = inner
+      enterEditingForEntry()
+      CanvasBridge.shared.register(board)
+      showLatestReportedError()
+    }
     .onChange(of: inner) { _, value in lastViewportSize = value }
   }
 
@@ -242,6 +251,9 @@ struct ComposerCanvas: View {
             isEditing: board.editingCardID == card.id,
             scale: effectiveScale,
             board: board,
+            // Only the select tool may grab a card. In a drawing tool the card is click-through, so
+            // a drag that starts over it draws a new element instead of selecting/moving the card.
+            selectable: tool == .select,
             onEscape: { dismiss() }
           )
           .zIndex(Double(card.z) + (board.primarySelectedCardID == card.id ? 10_000 : 0))
@@ -396,7 +408,8 @@ struct ComposerCanvas: View {
       },
       onAgent: { toggleAgent() },
       onFolder: { agent.chooseDirectory() },
-      onSettings: { openSettings() }
+      onClearFolder: { agent.setGroundingDirectory(nil) },
+      onSettings: { toggleSettings() }
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     .padding(.leading, Theme.Size.railInset(in: windowSize.width))
@@ -436,6 +449,7 @@ struct ComposerCanvas: View {
           store: store,
           onPick: { pickBoard($0) },
           onDelete: { deleteBoard($0) },
+          onRename: { renameBoard($0, to: $1) },
           onNew: { newBoard() }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -450,7 +464,13 @@ struct ComposerCanvas: View {
     if let draft = store.compiledDraft {
       CompiledDraftOverlay(
         text: draft,
-        onCopy: { copyToClipboard(draft); show(Toast(text: "Copied compiled draft", symbol: "doc.on.doc.fill", tint: .accentColor)) },
+        onCopy: {
+          if copyToClipboard(draft) {
+            show(Toast(text: "Copied compiled draft", symbol: "doc.on.doc.fill", tint: .accentColor))
+          } else {
+            show(Toast(text: "macOS did not accept the clipboard contents. The compiled draft was not copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
+          }
+        },
         onClose: { store.compiledDraft = nil }
       )
       .transition(.opacity)
@@ -464,10 +484,15 @@ struct ComposerCanvas: View {
         Spacer()
         HStack(spacing: 8) {
           Image(systemName: toast.symbol).foregroundStyle(toast.tint)
-          Text(toast.text).font(Theme.Typography.actionLabel).foregroundStyle(Theme.Palette.body)
+          Text(toast.text)
+            .font(Theme.Typography.actionLabel)
+            .foregroundStyle(Theme.Palette.body)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
+        .frame(maxWidth: 620, alignment: .leading)
         .floatingGlass(Capsule(style: .continuous))
         .padding(.bottom, 30)
       }
@@ -614,6 +639,8 @@ struct ComposerCanvas: View {
   private func newBoard() { board.flushSave(); store.newDump(); board.loadFromStore(); resetView(); focusFirstCard() }
   private func pickBoard(_ id: PersistentIdentifier) { board.flushSave(); store.select(id); board.loadFromStore(); resetView() }
   private func deleteBoard(_ id: PersistentIdentifier) { board.flushSave(); store.delete(id); board.loadFromStore(); resetView() }
+  // Rename only touches the board's name, never its cards — no flush/reload needed.
+  private func renameBoard(_ id: PersistentIdentifier, to name: String) { store.rename(id, to: name) }
 
   private func focusFirstCard() {
     guard let id = board.cards.first?.id else { return }
@@ -637,6 +664,17 @@ struct ComposerCanvas: View {
     if editing.mentions.isOpen { editing.mentions.isOpen = false; editing.mentions.items = [] }
     if editing.appSearch.isOpen { editing.appSearch.isOpen = false }
     if editing.lint.activeFlagID != nil { editing.lint.activeFlagID = nil }
+  }
+
+  /// The sidebar gear toggles Settings the way ⌘J / the rail toggle Agent: a second click on the
+  /// gear while Settings is up closes it again. (⌘, and the menu-bar item still always open.)
+  private func toggleSettings() {
+    if store.isSettingsOpen {
+      store.isSettingsOpen = false
+      NotificationCenter.default.post(name: .composerDismissDock, object: nil)
+    } else {
+      openSettings()
+    }
   }
 
   private func openSettings() {
@@ -669,7 +707,7 @@ struct ComposerCanvas: View {
       return
     }
     guard let engine = preferredEngine() else {
-      show(Toast(text: "No engines enabled in Settings", symbol: "exclamationmark.triangle.fill", tint: .orange))
+      show(Toast(text: unavailableEngineMessage(), symbol: "exclamationmark.triangle.fill", tint: .orange))
       return
     }
     isWorking = true
@@ -678,7 +716,7 @@ struct ComposerCanvas: View {
         let result = try await service.compileBoard(source: source, engine: engine)
         store.compiledDraft = result
       } catch {
-        show(Toast(text: error.localizedDescription, symbol: "exclamationmark.triangle.fill", tint: .orange))
+        show(Toast(text: UserFacingError.message(for: error, while: "Compiling the board"), symbol: "exclamationmark.triangle.fill", tint: .orange))
       }
       isWorking = false
     }
@@ -695,11 +733,21 @@ struct ComposerCanvas: View {
     if connectors > 0 { show(Toast(text: "Resolving connectors\u{2026}", symbol: "arrow.triangle.2.circlepath", tint: .accentColor)) }
     Task {
       let rendered = await SelfContainedRenderer.render(plain)
-      guard !rendered.trimmed.isEmpty else {
-        show(Toast(text: "Couldn\u{2019}t resolve connectors", symbol: "exclamationmark.triangle.fill", tint: .orange))
+      guard !rendered.text.trimmed.isEmpty else {
+        show(Toast(text: "Composer rendered no text from the non-empty board. Nothing was copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
         return
       }
-      copyToClipboard(rendered)
+      guard copyToClipboard(rendered.text) else {
+        show(Toast(text: "macOS did not accept the clipboard contents. The board was not copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
+        return
+      }
+      if !rendered.failures.isEmpty {
+        show(Toast(
+          text: "Copied with connector error\(rendered.failures.count == 1 ? "" : "s"):\n" + rendered.failures.joined(separator: "\n"),
+          symbol: "exclamationmark.triangle.fill",
+          tint: .orange))
+        return
+      }
       let message = connectors > 0 ? "Copied \u{00b7} \(connectors) connector\(connectors == 1 ? "" : "s") resolved" : "Copied self-contained text"
       show(Toast(text: message, symbol: "doc.on.doc.fill", tint: .accentColor))
     }
@@ -716,11 +764,14 @@ struct ComposerCanvas: View {
       return
     }
     guard let engine = preferredEngine() else {
-      show(Toast(text: "No engines enabled in Settings", symbol: "exclamationmark.triangle.fill", tint: .orange))
+      show(Toast(text: unavailableEngineMessage(), symbol: "exclamationmark.triangle.fill", tint: .orange))
       return
     }
-    guard let state = Self.encodeBoardState(graph) else {
-      show(Toast(text: "Couldn\u{2019}t read the board", symbol: "exclamationmark.triangle.fill", tint: .orange))
+    let state: String
+    do {
+      state = try Self.encodeBoardState(graph)
+    } catch {
+      show(Toast(text: UserFacingError.message(for: error, while: "Encoding the board for Claude"), symbol: "exclamationmark.triangle.fill", tint: .orange))
       return
     }
     isDescribing = true
@@ -729,10 +780,13 @@ struct ComposerCanvas: View {
     Task {
       do {
         let description = try await service.describeBoard(state: state, engine: engine)
-        copyToClipboard(description)
-        show(Toast(text: "Copied board description", symbol: "doc.on.doc.fill", tint: .accentColor))
+        if copyToClipboard(description) {
+          show(Toast(text: "Copied board description", symbol: "doc.on.doc.fill", tint: .accentColor))
+        } else {
+          show(Toast(text: "macOS did not accept the clipboard contents. The board description was not copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
+        }
       } catch {
-        show(Toast(text: error.localizedDescription, symbol: "exclamationmark.triangle.fill", tint: .orange))
+        show(Toast(text: UserFacingError.message(for: error, while: "Describing the board with \(engine.title)"), symbol: "exclamationmark.triangle.fill", tint: .orange))
       }
       isWorking = false
       isDescribing = false
@@ -740,10 +794,14 @@ struct ComposerCanvas: View {
   }
 
   /// Encode the board graph as the pretty-printed JSON the describe prompt reads.
-  private static func encodeBoardState(_ graph: CanvasGraph) -> String? {
+  private static func encodeBoardState(_ graph: CanvasGraph) throws -> String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    return (try? encoder.encode(graph)).flatMap { String(data: $0, encoding: .utf8) }
+    let data = try encoder.encode(graph)
+    guard let state = String(data: data, encoding: .utf8) else {
+      throw BoardDescriptionError.nonUTF8BoardState
+    }
+    return state
   }
 
   /// Refine the active card's current selection in place.
@@ -754,6 +812,10 @@ struct ComposerCanvas: View {
       show(Toast(text: "\(engine.title) is disabled in Settings", symbol: "exclamationmark.triangle.fill", tint: .orange))
       return
     }
+    guard engineCapabilities.isAvailable(engine) else {
+      show(Toast(text: unavailableEngineMessage(), symbol: "exclamationmark.triangle.fill", tint: .orange))
+      return
+    }
     let whole = card.controller.plainText
     isWorking = true
     Task {
@@ -762,7 +824,7 @@ struct ComposerCanvas: View {
         card.controller.replace(range: snapshot.range, with: result)
         show(Toast(text: "Refined with \(engine.title)", symbol: "checkmark.circle.fill", tint: .green))
       } catch {
-        show(Toast(text: error.localizedDescription, symbol: "exclamationmark.triangle.fill", tint: .orange))
+        show(Toast(text: UserFacingError.message(for: error, while: "Refining the selected text with \(engine.title)"), symbol: "exclamationmark.triangle.fill", tint: .orange))
       }
       isWorking = false
     }
@@ -775,6 +837,10 @@ struct ComposerCanvas: View {
       show(Toast(text: "Claude is disabled in Settings", symbol: "exclamationmark.triangle.fill", tint: .orange))
       return
     }
+    guard engineCapabilities.isAvailable(.claude) else {
+      show(Toast(text: unavailableEngineMessage(), symbol: "exclamationmark.triangle.fill", tint: .orange))
+      return
+    }
     let whole = card.controller.plainText
     isWorking = true
     card.lint.activeFlagID = nil
@@ -784,7 +850,7 @@ struct ComposerCanvas: View {
         card.controller.applyLintFix(range: flag.range, expecting: flag.phrase, with: result)
         show(Toast(text: "Clarified with Claude", symbol: "checkmark.circle.fill", tint: .green))
       } catch {
-        show(Toast(text: error.localizedDescription, symbol: "exclamationmark.triangle.fill", tint: .orange))
+        show(Toast(text: UserFacingError.message(for: error, while: "Clarifying the selected text with Claude"), symbol: "exclamationmark.triangle.fill", tint: .orange))
       }
       isWorking = false
     }
@@ -795,24 +861,53 @@ struct ComposerCanvas: View {
     return nil
   }
 
-  private func copyToClipboard(_ text: String) {
+  private func unavailableEngineMessage() -> String {
+    guard EnginePreferences.isEnabled(.claude) else {
+      return "Claude is disabled in Settings → Runtime. Enable it before using this action."
+    }
+    switch engineCapabilities.status(for: .claude) {
+    case .checking:
+      return "Composer is still checking whether Claude can run. Wait a moment or use Settings → Runtime → Recheck."
+    case let .unavailable(reason):
+      return "Claude is unavailable: \(reason). Open Settings → Runtime → Recheck after fixing it."
+    case .available:
+      return "Claude is available, but Composer could not select it. Open Settings → Runtime → Recheck."
+    }
+  }
+
+  @discardableResult
+  private func copyToClipboard(_ text: String) -> Bool {
     NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
+    return NSPasteboard.general.setString(text, forType: .string)
   }
 
   private func copySelectedCards() {
     let selected = board.selectedCardsForClipboard()
-    guard !selected.isEmpty, let data = try? JSONEncoder().encode(selected) else { return }
+    guard !selected.isEmpty else { return }
+    let data: Data
+    do {
+      data = try JSONEncoder().encode(selected)
+    } catch {
+      show(Toast(text: UserFacingError.message(for: error, while: "Encoding the selected cards for copy"), symbol: "exclamationmark.triangle.fill", tint: .orange))
+      return
+    }
     let pasteboard = NSPasteboard.general
     pasteboard.clearContents()
-    pasteboard.setData(data, forType: cardPasteboardType)
+    guard pasteboard.setData(data, forType: cardPasteboardType) else {
+      show(Toast(text: "macOS did not accept the selected-card clipboard data. The cards were not copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
+      return
+    }
   }
 
   private func pasteSelectedCards() {
     let pasteboard = NSPasteboard.general
-    if let data = pasteboard.data(forType: cardPasteboardType),
-       let cards = try? JSONDecoder().decode([CardState].self, from: data) {
-      board.insertCopies(cards)
+    if let data = pasteboard.data(forType: cardPasteboardType) {
+      do {
+        let cards = try JSONDecoder().decode([CardState].self, from: data)
+        board.insertCopies(cards)
+      } catch {
+        show(Toast(text: UserFacingError.message(for: error, while: "Reading selected cards from the clipboard"), symbol: "exclamationmark.triangle.fill", tint: .orange))
+      }
       return
     }
     if let image = firstImage(from: pasteboard), let url = ComposerTextView.savePNG(image) {
@@ -846,11 +941,19 @@ struct ComposerCanvas: View {
 
   // MARK: Toast
 
+  private func showLatestReportedError() {
+    guard let notice = userFacingErrors.takeLatest() else { return }
+    show(Toast(text: notice.message, symbol: "exclamationmark.triangle.fill", tint: .orange))
+  }
+
   private func show(_ value: Toast) {
     toast = value
     let id = value.id
+    // A concrete diagnostic is often much longer than a success confirmation. Keep it on screen
+    // long enough to read rather than hiding the useful part after the old fixed 1.9 seconds.
+    let duration = min(8.0, max(1.9, 1.3 + Double(value.text.count) * 0.026))
     Task {
-      try? await Task.sleep(nanoseconds: 1_900_000_000)
+      try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
       if toast?.id == id { toast = nil }
     }
   }
@@ -1361,4 +1464,15 @@ private struct Toast: Identifiable, Equatable {
   let text: String
   let symbol: String
   let tint: Color
+}
+
+private enum BoardDescriptionError: LocalizedError {
+  case nonUTF8BoardState
+
+  var errorDescription: String? {
+    switch self {
+    case .nonUTF8BoardState:
+      return "The encoded board state was not valid UTF-8 text, so Composer did not send it to Claude."
+    }
+  }
 }

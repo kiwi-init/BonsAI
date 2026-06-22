@@ -17,25 +17,38 @@ final class Dump {
   var updatedAt: Date
   /// JSON of `[CardState]`. `nil` on a legacy/fresh board → one card synthesized from `text`.
   var cardsData: Data?
+  /// A user-given board name. When set it overrides the auto-derived `title` and survives card
+  /// edits, so a rename sticks. `nil`/empty falls back to the first line of the content.
+  var customTitle: String?
 
-  init(text: String = "", createdAt: Date = Date(), updatedAt: Date = Date(), cardsData: Data? = nil) {
+  init(text: String = "", createdAt: Date = Date(), updatedAt: Date = Date(), cardsData: Data? = nil, customTitle: String? = nil) {
     self.text = text
     self.createdAt = createdAt
     self.updatedAt = updatedAt
     self.cardsData = cardsData
+    self.customTitle = customTitle
   }
 }
 
 extension Dump {
-  /// First non-empty line, for the history list.
+  /// The board's display name: the user-set `customTitle` if present, else the first non-empty
+  /// line of the content.
   var title: String {
+    if let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+      return String(custom.prefix(80))
+    }
     for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
       let trimmed = line.trimmingCharacters(in: .whitespaces)
       if !trimmed.isEmpty { return String(trimmed.prefix(80)) }
     }
     return ""
   }
-  var isBlank: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+  /// Blank = no content AND no user-given name — a named board is worth keeping even while empty,
+  /// so it isn't auto-pruned out from under the user.
+  var isBlank: Bool {
+    text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && (customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+  }
 }
 
 // MARK: - Store
@@ -49,6 +62,7 @@ final class DumpStore: ObservableObject {
   let container: ModelContainer
   private var context: ModelContext { container.mainContext }
   private var saveWork: DispatchWorkItem?
+  private var reportedUnreadableBoardIDs = Set<String>()
   /// The next save asks the board for one fresh snapshot when the debounce fires. Keeping a
   /// closure (rather than an array captured by every queued work item) prevents fast typing from
   /// retaining many whole-board copies until their cancelled timers drain.
@@ -69,11 +83,17 @@ final class DumpStore: ObservableObject {
   init() {
     let schema = Schema([Dump.self])
     let config = ModelConfiguration("Composer", schema: schema)
-    if let c = try? ModelContainer(for: schema, configurations: config) {
-      container = c
-    } else {
+    do {
+      container = try ModelContainer(for: schema, configurations: config)
+    } catch {
       // Never block the editor on a storage failure — fall back to memory-only.
-      container = try! ModelContainer(for: schema, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+      UserFacingError.report(error, while: "Opening Composer’s on-disk board storage")
+      do {
+        container = try ModelContainer(for: schema, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        UserFacingError.report("Composer is running with temporary memory-only storage. Boards created in this session will not survive a restart.")
+      } catch {
+        fatalError("Composer could not create either persistent or temporary board storage: \(error.localizedDescription)")
+      }
     }
     migrateLegacyNoteIfNeeded()
     seedWelcomeBoardIfFirstRun()
@@ -97,10 +117,14 @@ final class DumpStore: ObservableObject {
   /// legacy `text` when a board predates the canvas (lazy, no migration pass).
   func cards(for dump: Dump?) -> [CardState] {
     guard let dump else { return [CardState.firstCard()] }
-    if let data = dump.cardsData,
-       let decoded = try? JSONDecoder().decode([CardState].self, from: data),
-       !decoded.isEmpty {
-      return decoded
+    if let data = dump.cardsData {
+      do {
+        let decoded = try JSONDecoder().decode([CardState].self, from: data)
+        if !decoded.isEmpty { return decoded }
+        reportUnreadableBoard(dump, message: "A saved board contained no cards. Composer loaded its text fallback instead.")
+      } catch {
+        reportUnreadableBoard(dump, message: UserFacingError.message(for: error, while: "Reading this saved board"))
+      }
     }
     return [CardState.firstCard(text: dump.text)]
   }
@@ -131,12 +155,18 @@ final class DumpStore: ObservableObject {
   }
 
   private func commit(cards: [CardState]) {
-    let data = try? JSONEncoder().encode(cards)
+    let data: Data
+    do {
+      data = try JSONEncoder().encode(cards)
+    } catch {
+      UserFacingError.report(error, while: "Encoding the board before autosave")
+      return
+    }
     let mirror = Self.titleMirror(for: cards)
     guard let dump = current else {
       let dump = Dump(text: mirror, cardsData: data)
       context.insert(dump)
-      try? context.save()
+      guard save("Creating a new board") else { return }
       reload()
       currentID = dump.persistentModelID
       return
@@ -145,7 +175,7 @@ final class DumpStore: ObservableObject {
     dump.cardsData = data
     dump.text = mirror
     dump.updatedAt = Date()
-    try? context.save()
+    guard save("Autosaving the board") else { return }
     objectWillChange.send()   // the array identity is unchanged; nudge the list
   }
 
@@ -181,7 +211,7 @@ final class DumpStore: ObservableObject {
     if let dump = current, dump.isBlank { isHistoryOpen = false; return }
     let dump = Dump()
     context.insert(dump)
-    try? context.save()
+    guard save("Creating a new board") else { return }
     reload()
     currentID = dump.persistentModelID
     isHistoryOpen = false
@@ -191,10 +221,21 @@ final class DumpStore: ObservableObject {
     guard let dump = dumps.first(where: { $0.persistentModelID == id }) else { return }
     let wasCurrent = id == currentID
     context.delete(dump)
-    try? context.save()
+    guard save("Deleting the board") else { return }
     reload()
     if wasCurrent { currentID = dumps.first?.persistentModelID }
     ensureCurrent()
+  }
+
+  /// Give a board a custom name. An empty/whitespace name clears it back to the auto-derived title.
+  /// Doesn't touch the cards, so it's safe to rename the board you're currently editing.
+  func rename(_ id: PersistentIdentifier, to name: String) {
+    guard let dump = dumps.first(where: { $0.persistentModelID == id }) else { return }
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    dump.customTitle = trimmed.isEmpty ? nil : String(trimmed.prefix(80))
+    dump.updatedAt = Date()
+    try? context.save()
+    objectWillChange.send()
   }
 
   // MARK: Housekeeping
@@ -202,7 +243,7 @@ final class DumpStore: ObservableObject {
   private func pruneCurrentIfEmpty() {
     guard dumps.count > 1, let dump = current, dump.isBlank else { return }
     context.delete(dump)
-    try? context.save()
+    guard save("Removing the empty board") else { return }
     reload()
   }
 
@@ -210,7 +251,7 @@ final class DumpStore: ObservableObject {
     if dumps.isEmpty {
       let dump = Dump()
       context.insert(dump)
-      try? context.save()
+      guard save("Creating the first board") else { return }
       reload()
     }
     if current == nil { currentID = dumps.first?.persistentModelID }
@@ -218,7 +259,11 @@ final class DumpStore: ObservableObject {
 
   private func reload() {
     let descriptor = FetchDescriptor<Dump>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
-    dumps = (try? context.fetch(descriptor)) ?? []
+    do {
+      dumps = try context.fetch(descriptor)
+    } catch {
+      UserFacingError.report(error, while: "Loading saved boards")
+    }
   }
 
   /// Seed the bundled welcome board the first time the app runs with an empty store, so new users
@@ -227,23 +272,58 @@ final class DumpStore: ObservableObject {
   private func seedWelcomeBoardIfFirstRun() {
     let seededKey = "composer.didSeedWelcomeBoard"
     guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
-    let existing = (try? context.fetchCount(FetchDescriptor<Dump>())) ?? 0
+    let existing: Int
+    do {
+      existing = try context.fetchCount(FetchDescriptor<Dump>())
+    } catch {
+      UserFacingError.report(error, while: "Checking whether Composer has existing boards")
+      return
+    }
     guard existing == 0, let cards = WelcomeBoard.seedCards() else {
       // Returning user (or unreadable resource): mark seeded so we never inject it later.
       if existing > 0 { UserDefaults.standard.set(true, forKey: seededKey) }
       return
     }
-    let data = try? JSONEncoder().encode(cards)
+    let data: Data
+    do {
+      data = try JSONEncoder().encode(cards)
+    } catch {
+      UserFacingError.report(error, while: "Encoding the welcome board")
+      return
+    }
     context.insert(Dump(text: Self.titleMirror(for: cards), cardsData: data))
-    try? context.save()
-    UserDefaults.standard.set(true, forKey: seededKey)
+    if save("Saving the welcome board") {
+      UserDefaults.standard.set(true, forKey: seededKey)
+    }
   }
 
   private func migrateLegacyNoteIfNeeded() {
-    let existing = (try? context.fetchCount(FetchDescriptor<Dump>())) ?? 0
+    let existing: Int
+    do {
+      existing = try context.fetchCount(FetchDescriptor<Dump>())
+    } catch {
+      UserFacingError.report(error, while: "Checking whether Composer has existing boards")
+      return
+    }
     let legacy = NotePersistence.load()
     guard existing == 0, !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     context.insert(Dump(text: legacy))
-    try? context.save()
+    _ = save("Importing the previous Composer note")
+  }
+
+  private func save(_ action: String) -> Bool {
+    do {
+      try context.save()
+      return true
+    } catch {
+      UserFacingError.report(error, while: action)
+      return false
+    }
+  }
+
+  private func reportUnreadableBoard(_ dump: Dump, message: String) {
+    let id = String(describing: dump.persistentModelID)
+    guard reportedUnreadableBoardIDs.insert(id).inserted else { return }
+    UserFacingError.report(message)
   }
 }
