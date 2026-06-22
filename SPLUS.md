@@ -46,3 +46,16 @@ two-window composition above all else.
    need round-trip test coverage (see `ConnectorTokenTests`).
 7. **User-facing changes carry a `CHANGELOG.md` note.** If a diff changes behavior
    or UX with no Unreleased entry, call it out.
+8. **No generic or swallowed errors — every failure a user can hit is specific and
+   actionable.** Route failures through `UserFacingError` (`Support/UserFacingError.swift`):
+   name the operation (`while:`), keep the real diagnostic, and point to a fix when one
+   exists (`claude auth login`, `gh auth login`, "Settings → Connectors"). Three must-fix
+   shapes: **(a)** placeholder messages that drop the underlying cause — `"\(engine) exited
+   with \(status)"`, `"… failed."`, `"API error (403)"`, `"Could not load …"`, `"Unavailable
+   right now"`; **(b)** a `try?`/`as?` that collapses a diagnostic into `?? []`, `?? {}`,
+   `?? nil`, or `?? ""` and silently omits the failure instead of surfacing it (prefer an
+   explicit `do/catch` → `UserFacingError.message(for:while:)` or `.report`); **(c)** reading
+   only `stderr` from a `Shell.Result` — inspect **both** streams (use `commandFailure(command:
+   result:)`), since some CLIs (notably `claude`) write the error to stdout. This sharpens
+   nit #5: a connector still degrades to a reference line, but that line must say *why* it
+   failed, not just that it did.
