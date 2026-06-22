@@ -1,10 +1,22 @@
 name: CI
 
 on:
+  # Skip doc-only changes — there's nothing to compile or test when only
+  # Markdown, docs, or the license moved.
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - '.gitignore'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - '.gitignore'
 
 concurrency:
   group: ci-${{ github.ref }}

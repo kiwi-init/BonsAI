@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]
+    # Doc-only PRs (Markdown, docs, license) aren't user-facing app changes,
+    # so don't demand a CHANGELOG.md note for them.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - '.gitignore'
 
 permissions:
   contents: read
