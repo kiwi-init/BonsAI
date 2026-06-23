@@ -25,9 +25,10 @@ struct ComposerCanvas: View {
   @State private var elementDraft: DragSegment?
   @State private var isSpacePressed = false
   @State private var viewportThrottle = ViewportEventThrottle()
-  /// Held as plain @State (not @StateObject) so the agent's streaming updates stay scoped to its
-  /// own auxiliary panel rather than re-rendering the canvas.
-  @State private var agent = CanvasAgent()
+  /// Observed for the agent's *coarse* state (isRunning / grounding) so the toolbar and ⌘K palette
+  /// stay in sync. The streaming transcript lives on `agent.transcript`, which the canvas does NOT
+  /// observe, so per-token updates re-render only the dock — never the board.
+  @StateObject private var agent = CanvasAgent()
   @State private var showAgent = false
   /// Mirrors the agent's grounding folder so the toolbar reflects it reactively.
   @AppStorage("agent.groundingDirectory") private var groundingPath = ""
