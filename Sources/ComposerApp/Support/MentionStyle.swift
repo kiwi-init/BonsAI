@@ -107,15 +107,18 @@ final class MentionStyleCache {
   func image(for id: String) -> NSImage? { images[id] }
   func color(for id: String) -> NSColor? { colors[id] }
 
-  /// A `side`×`side` copy of the brand icon for inline `Text` use, cached per id.
+  /// A `side`×`side` copy of the brand icon for inline `Text` use, cached per id *and size* — the
+  /// board zooms, so the same chip is requested at several sizes; keying by id alone froze the icon
+  /// at its first (1×) size while the surrounding text grew.
   func inlineImage(for id: String, side: CGFloat = 15) -> NSImage? {
-    if let cached = inlineImages[id] { return cached }
+    let key = "\(id)@\(Int(side.rounded()))"
+    if let cached = inlineImages[key] { return cached }
     guard let base = images[id] else { return nil }
     let resized = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
       base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
       return true
     }
-    inlineImages[id] = resized
+    inlineImages[key] = resized
     return resized
   }
 
@@ -183,7 +186,7 @@ final class MentionStyleCache {
   private func ingest(id: String, image: NSImage) {
     images[id] = image
     colors[id] = dominantColor(of: image)
-    inlineImages[id] = nil   // drop the stale inline copy; rebuilt on next request
+    inlineImages = inlineImages.filter { !$0.key.hasPrefix("\(id)@") }   // drop every stale sized copy
     broadcast()
   }
 

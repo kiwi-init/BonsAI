@@ -152,6 +152,7 @@ private struct SettingsContent: View {
   @ObservedObject private var shortcutStore = ShortcutStore.shared
   @AppStorage(EnginePreferences.claudeEnabledKey) private var claudeEnabled = true
   @AppStorage(ComposerPreferences.panelTransparencyKey) private var panelTransparency = ComposerPreferences.defaultPanelTransparency
+  @AppStorage(ComposerPreferences.resolveShellAtCopyKey) private var resolveShellAtCopy = false
 
   var body: some View {
     ScrollView {
@@ -424,6 +425,8 @@ private struct SettingsContent: View {
       pageHeader("Connectors",
                  "Type @ in a card to attach live context. Copied drafts become self-contained text — the source is resolved at copy time.")
 
+      shellResolutionCard
+
       ForEach(MentionCatalog.appsByCategory, id: \.category) { group in
         VStack(alignment: .leading, spacing: 8) {
           Text(group.category.title.uppercased()).sectionLabel()
@@ -437,6 +440,32 @@ private struct SettingsContent: View {
           .settingsCard()
         }
       }
+    }
+  }
+
+  /// Opt-in for copy-time shell. Off by default; even on, every copy confirms what will run.
+  private var shellResolutionCard: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("COPY-TIME SHELL").sectionLabel()
+      HStack(spacing: 11) {
+        Image(systemName: "terminal")
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(Theme.Palette.body)
+          .frame(width: 24, height: 24)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Resolve shell at copy time")
+            .font(.callout.weight(.medium)).foregroundStyle(Theme.Palette.body)
+          Text("Run $(command) blocks and name=(value) variables when you copy, pasting their output. Each copy confirms what will run.")
+            .font(.caption).foregroundStyle(Theme.Palette.menuDesc)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 8)
+        Toggle("", isOn: $resolveShellAtCopy)
+          .labelsHidden().toggleStyle(.switch).controlSize(.small)
+      }
+      .padding(.horizontal, 13)
+      .padding(.vertical, 11)
+      .settingsCard()
     }
   }
 

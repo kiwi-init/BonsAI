@@ -5,6 +5,7 @@ import Foundation
 enum ComposerPreferences {
   static let editorFontSizeKey = "composer.editor.fontPointSize"
   static let panelTransparencyKey = "composer.panel.backgroundTransparency"
+  static let resolveShellAtCopyKey = "composer.copy.resolveShellCommands"
 
   static let minEditorFontSize: CGFloat = 11
   static let maxEditorFontSize: CGFloat = 28
@@ -24,6 +25,12 @@ enum ComposerPreferences {
 
   static var editorFont: NSFont {
     NSFont.systemFont(ofSize: editorFontSize)
+  }
+
+  /// Whether `{{x = cmd}}` variables and `[sh: cmd]` nodes run at copy time. Off by default: running
+  /// shell pulled from board text is opt-in, and even when on, each copy confirms what will execute.
+  static var resolveShellAtCopy: Bool {
+    UserDefaults.standard.bool(forKey: resolveShellAtCopyKey)
   }
 
   @discardableResult

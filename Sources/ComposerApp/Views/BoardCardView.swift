@@ -60,12 +60,12 @@ struct BoardCardView: View {
   var body: some View {
     cardBody
       .opacity(card.isArchived ? 0.4 : 1)   // superseded ideas fade but stay for lineage
-      .frame(width: liveFrame.width, height: liveFrame.height, alignment: .topLeading)
+      .frame(width: liveFrame.width * zoom, height: liveFrame.height * zoom, alignment: .topLeading)
       .background(surface)
       .overlay(selectionChrome)
       .overlay(deleteButton, alignment: .topTrailing)
       .overlay(lockBadge, alignment: .topLeading)
-      .offset(x: liveFrame.minX, y: liveFrame.minY)
+      .offset(x: liveFrame.minX * zoom, y: liveFrame.minY * zoom)
       .onHover { hovering = $0 }
       .onChange(of: interaction.text) { oldValue, newValue in
         // FreeWriteEditor writes serialized text here. Keeping the plain-text cache current lets
@@ -78,7 +78,7 @@ struct BoardCardView: View {
   // MARK: Body (editor + move/select catcher)
 
   private var cardBody: some View {
-    ZStack {
+    ZStack(alignment: .topLeading) {
       if isEditing, isTextElement {
         FreeWriteEditor(
           text: $interaction.text,
@@ -103,6 +103,7 @@ struct BoardCardView: View {
             board.fitTextHeight(card.id, to: contentHeight + 20)
           },
           boardContext: { board.lintContext(excluding: card.id) },
+          definedVariables: { board.definedVariableNames },
           mentions: interaction.mentions,
           appSearch: interaction.appSearch,
           controller: interaction.controller,
@@ -112,13 +113,19 @@ struct BoardCardView: View {
         )
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        // The live editor keeps its native (board-size) layout and is scaled to fill the card.
+        // Its text softens only while you're actively editing this one card — every other card
+        // is layout-zoomed and stays crisp. Anchored top-left to line up with the static render.
+        .frame(width: liveFrame.width, height: liveFrame.height, alignment: .topLeading)
+        .scaleEffect(zoom, anchor: .topLeading)
       } else {
         // Non-editing cards render from the serialized plain text (tokens like "@github"), so
         // the chip renderer can rebuild the styled chips — `interaction.text` is the visible
-        // string, where a chip has already collapsed to its bare label.
-        CanvasElementContent(card: card, text: interaction.plainText)
-          .padding(.horizontal, isTextElement ? 16 : 0)
-          .padding(.vertical, isTextElement ? 18 : 0)
+        // string, where a chip has already collapsed to its bare label. Fonts/padding scale with
+        // zoom so the text is laid out at screen size (crisp), not stretched.
+        CanvasElementContent(card: card, text: interaction.plainText, definedVars: board.definedVariableNames, failedCommands: board.failedShellCommands, zoom: zoom)
+          .padding(.horizontal, (isTextElement ? 16 : 0) * zoom)
+          .padding(.vertical, (isTextElement ? 18 : 0) * zoom)
           .allowsHitTesting(false)
 
         if isEditing, !isTextElement {
@@ -344,6 +351,12 @@ private struct CanvasElementContent: View {
   let card: CardState
   /// Serialized plain text (`@github`, `[image: …]`, literal prose) for text cards.
   let text: String
+  /// Board-scoped variable names, for styling `$name` references defined in other cards.
+  var definedVars: Set<String> = []
+  /// Commands that failed on the last copy — their tokens render amber.
+  var failedCommands: Set<String> = []
+  /// Board zoom — fonts scale by it so text is laid out (and stays crisp) at screen size.
+  var zoom: CGFloat = 1
 
   var body: some View {
     ZStack {
@@ -353,11 +366,11 @@ private struct CanvasElementContent: View {
           Group {
             if text.trimmed.isEmpty {
               Text("Brain dump\u{2026}")
-                .font(Font(Theme.Typography.body))
-                .lineSpacing(Theme.Typography.bodyLineSpacing)
+                .font(.system(size: Theme.Typography.body.pointSize * zoom))
+                .lineSpacing(Theme.Typography.bodyLineSpacing * zoom)
                 .foregroundStyle(Theme.Palette.placeholder)
             } else {
-              ComposerChipText(plain: text)
+              ComposerChipText(plain: text, definedVars: definedVars, failedCommands: failedCommands, zoom: zoom)
             }
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -383,10 +396,10 @@ private struct CanvasElementContent: View {
         switch card.elementKind {
         case .rectangle, .ellipse, .diamond:
           // A diagram node: the label fills the box (the box is the boundary).
-          NodeLabel(text: text.trimmed)
+          NodeLabel(text: text.trimmed, zoom: zoom)
         case .arrow, .line:
           // A connector label: a floating pill so it stays legible over the canvas.
-          CanvasLabel(text: text.trimmed)
+          CanvasLabel(text: text.trimmed, zoom: zoom)
         default:
           EmptyView()
         }
@@ -399,17 +412,18 @@ private struct CanvasElementContent: View {
 /// container — and it wraps/scales to fit rather than truncating mid-word.
 private struct NodeLabel: View {
   let text: String
+  var zoom: CGFloat = 1
 
   var body: some View {
     Text(text)
-      .font(.system(size: 14, weight: .semibold))
+      .font(.system(size: 14 * zoom, weight: .semibold))
       .multilineTextAlignment(.center)
       .lineLimit(5)
       .minimumScaleFactor(0.82)
       .foregroundStyle(Color.white.opacity(0.95))
       .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, 12 * zoom)
+      .padding(.vertical, 8 * zoom)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .allowsHitTesting(false)
   }
@@ -423,31 +437,70 @@ private struct NodeLabel: View {
 /// placeholders show a small inline glyph (the real attachment only lives in the live editor).
 private struct ComposerChipText: View {
   let plain: String
+  /// Board-scoped variable names, so a `$name` reference styles even when defined in another card.
+  var definedVars: Set<String> = []
+  /// Commands that failed on the last copy — their `$(…)` tokens render amber instead of green.
+  var failedCommands: Set<String> = []
+  /// Board zoom — the base font + chip icons scale by it so the text is laid out at screen size.
+  var zoom: CGFloat = 1
 
   var body: some View {
     composed
-      .font(Font(Theme.Typography.body))
-      .lineSpacing(Theme.Typography.bodyLineSpacing)
+      .font(.system(size: Theme.Typography.body.pointSize * zoom))
+      .lineSpacing(Theme.Typography.bodyLineSpacing * zoom)
       .foregroundStyle(Theme.Palette.body)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
 
+  /// One styled span over the plain text: an `@mention`/image token, or a copy-time shell token.
+  private enum Span { case mention(String); case shell(ShellTemplate.Kind) }
+
   // Called from `body`, so the main-actor `MentionStyleCache` access in `styledRun` is safe.
   @MainActor private var composed: Text {
     let ns = plain as NSString
+
+    // Merge mention spans and shell-token spans into one ordered, non-overlapping list.
+    var spans: [(range: NSRange, span: Span)] = []
+    for range in Self.tokenRanges(in: plain) { spans.append((range, .mention(ns.substring(with: range)))) }
+    for expression in ShellTemplate.expressions(in: plain, definedNames: definedVars) {
+      spans.append((expression.range, .shell(expression.kind)))
+    }
+    spans.sort { $0.range.location < $1.range.location }
+
     var out = Text(verbatim: "")
     var cursor = 0
-    for range in Self.tokenRanges(in: plain) {
+    for (range, span) in spans {
+      if range.location < cursor { continue }   // overlap (rare): keep the first, skip the rest
       if range.location > cursor {
         out = out + Text(verbatim: ns.substring(with: NSRange(location: cursor, length: range.location - cursor)))
       }
-      out = out + Self.styledRun(for: ns.substring(with: range))
+      switch span {
+      case let .mention(raw): out = out + Self.styledRun(for: raw, zoom: zoom)
+      case let .shell(kind): out = out + Self.shellRun(kind, raw: ns.substring(with: range), zoom: zoom, failed: failedCommands)
+      }
       cursor = range.location + range.length
     }
     if cursor < ns.length {
       out = out + Text(verbatim: ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)))
     }
     return out
+  }
+
+  /// A copy-time shell token, tinted in place — green monospaced for a `$(…)` command, violet for a
+  /// variable definition or `$name` reference. The literal syntax is kept (that's why it was chosen);
+  /// only its color and weight change (bold), so it reads as live without a background swatch.
+  @MainActor private static func shellRun(_ kind: ShellTemplate.Kind, raw: String, zoom: CGFloat, failed: Set<String>) -> Text {
+    // Pin to the card's actual body point size (× zoom) — SwiftUI's semantic `.body` is smaller than
+    // `Theme.Typography.body` (the user-adjustable editor font), which shrank the tokens.
+    let size = Theme.Typography.body.pointSize * zoom
+    // A command that failed on the last copy reads amber, so you can see which `$(…)` to fix.
+    let didFail = { if case let .command(command) = kind { return failed.contains(command) }; return false }()
+    var content = AttributedString(raw)
+    content.font = ShellTokenStyle.isCode(kind)
+      ? .system(size: size, weight: .bold, design: .monospaced)
+      : .system(size: size, weight: .bold)
+    content.foregroundColor = Color(nsColor: didFail ? ShellTokenStyle.warning : ShellTokenStyle.tint(for: kind))
+    return Text(content)
   }
 
   /// Matches any catalog mention token (longest id first so `@build-ios-apps` wins over a
@@ -465,7 +518,7 @@ private struct ComposerChipText: View {
     return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map(\.range)
   }
 
-  @MainActor private static func styledRun(for raw: String) -> Text {
+  @MainActor private static func styledRun(for raw: String, zoom: CGFloat) -> Text {
     if raw.hasPrefix("[image:") {
       return Text(Image(systemName: "photo")).foregroundColor(Theme.Palette.placeholder)
     }
@@ -478,8 +531,9 @@ private struct ComposerChipText: View {
     let color = Color(nsColor: cache.color(for: appID) ?? .controlAccentColor)
 
     var chip = Text(verbatim: "")
-    if let icon = cache.inlineImage(for: appID) {
-      chip = chip + Text(Image(nsImage: icon)).baselineOffset(-2) + Text(verbatim: "\u{2009}")
+    // Build the inline icon at the zoomed size so the brand mark stays crisp alongside the text.
+    if let icon = cache.inlineImage(for: appID, side: (15 * zoom).rounded()) {
+      chip = chip + Text(Image(nsImage: icon)).baselineOffset(-2 * zoom) + Text(verbatim: "\u{2009}")
     }
     chip = chip + Text(verbatim: label).foregroundColor(color)
     if isApp { chip = chip + Text(verbatim: "\u{2009}\u{25BE}").foregroundColor(color.opacity(0.5)) }
@@ -489,15 +543,16 @@ private struct ComposerChipText: View {
 
 private struct CanvasLabel: View {
   let text: String
+  var zoom: CGFloat = 1
 
   var body: some View {
     Text(text)
-      .font(.system(size: 14, weight: .semibold))
+      .font(.system(size: 14 * zoom, weight: .semibold))
       .lineLimit(2)
       .multilineTextAlignment(.center)
       .foregroundStyle(Color.white.opacity(0.90))
-      .padding(.horizontal, 9)
-      .padding(.vertical, 5)
+      .padding(.horizontal, 9 * zoom)
+      .padding(.vertical, 5 * zoom)
       .background(
         RoundedRectangle(cornerRadius: 7, style: .continuous)
           .fill(Color.black.opacity(0.34))
@@ -601,7 +656,6 @@ private struct FreehandShape: View {
 private struct ImageObjectPlaceholder: View {
   let path: String?
   @State private var image: NSImage?
-  @State private var requestedPath: String?
 
   var body: some View {
     Group {
@@ -632,18 +686,15 @@ private struct ImageObjectPlaceholder: View {
           .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
       }
     }
-    .onAppear { loadImage(for: path) }
-    .onChange(of: path) { _, nextPath in loadImage(for: nextPath) }
-  }
-
-  private func loadImage(for path: String?) {
-    requestedPath = path
-    image = nil
-    guard let path else { return }
-    CanvasImageCache.shared.load(path: path) { loaded in
-      // Culling/reuse can change this view's card before an asynchronous decode returns.
-      guard requestedPath == path else { return }
-      image = loaded
+    // `.task(id:)` runs on appear AND whenever `path` changes, and is cancelled on disappear — so a
+    // card reloaded from a saved board (or culled and re-added while panning) reliably re-decodes,
+    // instead of the old `.onAppear` + stored-path guard silently dropping the result.
+    .task(id: path) {
+      guard let path else { image = nil; return }
+      let loaded: NSImage? = await withCheckedContinuation { continuation in
+        CanvasImageCache.shared.load(path: path) { continuation.resume(returning: $0) }
+      }
+      if !Task.isCancelled { image = loaded }
     }
   }
 }
