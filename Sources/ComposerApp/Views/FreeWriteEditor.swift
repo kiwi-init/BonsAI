@@ -94,6 +94,9 @@ struct FreeWriteEditor: NSViewRepresentable {
   /// Supplies the rest of the board's text as read-only context for the linter. `nil` ⇒
   /// behaves exactly as the single-editor era.
   var boardContext: () -> String? = { nil }
+  /// Board-scoped copy-time variable names, so a `$name` reference highlights even when its
+  /// `name = …` definition lives in another card.
+  var definedVariables: () -> Set<String> = { [] }
   @ObservedObject var mentions: MentionState
   @ObservedObject var appSearch: AppSearchState
   @ObservedObject var controller: EditorController
@@ -172,6 +175,9 @@ struct FreeWriteEditor: NSViewRepresentable {
         ChipFactory.attributedDocument(fromPlainText: text, font: Theme.Typography.body,
                                        paragraph: context.coordinator.paragraphStyle()))
     }
+    // Style what's already there (shell-token highlight, chip restyle) so a focused card shows
+    // its tokens immediately, not only after the first keystroke.
+    if (tv.textStorage?.length ?? 0) > 0 { context.coordinator.applyCurrentFormatting() }
     context.coordinator.installPlaceholder(in: tv, text: placeholder)
     context.coordinator.updatePlaceholderVisibility()
     context.coordinator.reportHeight(force: true)
@@ -301,9 +307,29 @@ extension FreeWriteEditor {
       isNormalizingFormatting = true
       storage.beginEditing()
       for range in bodyRanges { storage.setAttributes(attrs, range: range) }
+      highlightShellTokens(in: storage)
       storage.endEditing()
       isNormalizingFormatting = false
       tv.typingAttributes = attrs
+    }
+
+    /// Syntax-highlight the copy-time shell tokens (`{{x = cmd}}`, `{{x}}`, `[sh: cmd]`) so they
+    /// read as live code while you type, matched to the rendered card. Display-only: it changes
+    /// font/color/background on existing characters, never the text, so `composerPlainText` still
+    /// round-trips the literal source. Runs after the body reset (so it wins) and inside the
+    /// caller's begin/endEditing batch.
+    private func highlightShellTokens(in storage: NSTextStorage) {
+      let size = Theme.Typography.body.pointSize
+      // Board-scoped names ∪ this card's own definitions (so a just-typed `name =` references live).
+      let names = parent.definedVariables().union(ShellTemplate.definedNames(in: storage.string))
+      for expression in ShellTemplate.expressions(in: storage.string, definedNames: names) {
+        let range = expression.range
+        guard range.location + range.length <= storage.length else { continue }
+        storage.addAttributes([
+          .font: ShellTokenStyle.font(for: expression.kind, size: size),
+          .foregroundColor: ShellTokenStyle.tint(for: expression.kind),
+        ], range: range)
+      }
     }
 
     // MARK: Text change → binding + count + mention scan
@@ -576,18 +602,38 @@ extension FreeWriteEditor {
 
     // MARK: @-mention detection
     private func refreshMentionMenu(_ tv: NSTextView) {
+      // A `$word` the user is typing autocompletes board variables — it takes priority over `@`.
+      if let variable = activeVariableQuery(in: tv) {
+        let items = variableMenuItems(matching: variable.text)
+        if !items.isEmpty { openMenu(items: items, at: variable.range, in: tv); return }
+      }
       guard let query = activeMentionQuery(in: tv) else { closeMenu(); return }
       let results = MentionCatalog.filtered(query.text)
       guard !results.isEmpty else { closeMenu(); return }
+      openMenu(items: results, at: query.range, in: tv)
+    }
 
-      let screen = tv.firstRect(forCharacterRange: query.range, actualRange: nil)
+    private func openMenu(items: [MentionItem], at range: NSRange, in tv: NSTextView) {
+      let screen = tv.firstRect(forCharacterRange: range, actualRange: nil)
       if let frame = tv.window?.frame {
         parent.mentions.anchorInView = CGPoint(x: screen.minX - frame.minX,
                                                y: frame.maxY - screen.minY)
       }
-      parent.mentions.items = results
-      parent.mentions.selectedIndex = min(parent.mentions.selectedIndex, results.count - 1)
+      parent.mentions.items = items
+      parent.mentions.selectedIndex = min(parent.mentions.selectedIndex, items.count - 1)
       parent.mentions.isOpen = true
+    }
+
+    /// Board variables matching `query`, as menu items. The `$`-prefixed id tells `commit` to
+    /// insert plain `$name` text rather than an `@`-style chip. Empty when nothing matches (so a
+    /// `$` typed on a board with no variables — e.g. heading into `$(cmd)` — never pops a menu).
+    private func variableMenuItems(matching query: String) -> [MentionItem] {
+      let names = parent.definedVariables().sorted()
+      let matches = query.isEmpty ? names : names.filter { $0.lowercased().hasPrefix(query.lowercased()) }
+      return matches.map {
+        MentionItem(id: "$\($0)", title: $0.lowercased(), label: "$\($0)",
+                    subtitle: "board variable", symbol: "dollarsign", kind: .skill)
+      }
     }
 
     private func closeMenu() {
@@ -631,7 +677,20 @@ extension FreeWriteEditor {
 
     // MARK: Insert the chosen mention as an undo-safe chip + trailing space
     func commit(_ item: MentionItem) {
-      guard let tv = textView, let query = activeMentionQuery(in: tv) else { return }
+      guard let tv = textView else { return }
+      // Board-variable completion: insert plain `$name` (the highlighter tints it), not a chip.
+      if item.id.hasPrefix("$"), let variable = activeVariableQuery(in: tv) {
+        guard tv.shouldChangeText(in: variable.range, replacementString: item.id) else { return }
+        tv.textStorage?.replaceCharacters(in: variable.range, with: NSAttributedString(string: item.id, attributes: bodyAttributes()))
+        tv.setSelectedRange(NSRange(location: variable.range.location + (item.id as NSString).length, length: 0))
+        tv.typingAttributes = bodyAttributes()
+        tv.didChangeText()
+        parent.text = tv.attributedString().composerPlainText
+        parent.onCountChange(tv.string.count)
+        closeMenu()
+        return
+      }
+      guard let query = activeMentionQuery(in: tv) else { return }
       let chip = ChipFactory.make(token: item.id, font: Theme.Typography.body)
       let token = NSMutableAttributedString(attributedString: chip)
       token.append(NSAttributedString(string: " ", attributes: bodyAttributes()))
@@ -830,6 +889,37 @@ func activeMentionQuery(in tv: NSTextView) -> MentionQuery? {
     }
     if ch == " " || ch == "\n" || ch == "\t" { return nil }
     i -= 1
+  }
+  return nil
+}
+
+// MARK: - Backward $-query scan (variable autocomplete)
+
+struct VariableQuery { let range: NSRange; let text: String }   // range covers "$query" incl. $
+
+/// Scan backward from the caret for the `$identifier` being typed. nil unless the caret sits right
+/// after `$` + word characters, with `$` not glued to a preceding letter/number/`$` (so `a$b` and
+/// `$$` never trigger) and nothing but identifier chars between `$` and the caret (so `$(` stops).
+func activeVariableQuery(in tv: NSTextView) -> VariableQuery? {
+  let sel = tv.selectedRange()
+  guard sel.length == 0, sel.location > 0 else { return nil }
+  let ns = tv.string as NSString
+  let caret = sel.location
+  var i = caret - 1
+  while i >= 0 {
+    guard let scalar = UnicodeScalar(ns.character(at: i)) else { return nil }
+    let ch = Character(scalar)
+    if ch == "$" {
+      if i > 0, let prevScalar = UnicodeScalar(ns.character(at: i - 1)) {
+        let prev = Character(prevScalar)
+        if prev.isLetter || prev.isNumber || prev == "$" { return nil }
+      }
+      return VariableQuery(
+        range: NSRange(location: i, length: caret - i),
+        text: ns.substring(with: NSRange(location: i + 1, length: caret - i - 1)))
+    }
+    if ch.isLetter || ch.isNumber || ch == "_" { i -= 1; continue }
+    return nil   // a non-identifier, non-`$` char before the caret ⇒ not in a `$word`
   }
   return nil
 }

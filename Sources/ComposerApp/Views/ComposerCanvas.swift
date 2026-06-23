@@ -18,6 +18,8 @@ struct ComposerCanvas: View {
   /// Scoped to the toolbar Copy button so only it shows a spinner while its `claude -p` describe
   /// runs (`isWorking` also covers compile/refine, which shouldn't spin the Copy glyph).
   @State private var isDescribing = false
+  /// True while Copy Board's shell expansion is in flight — disables the button and shows a spinner.
+  @State private var isCopyingBoard = false
   @State private var toast: Toast?
   @State private var lastViewportSize: CGSize = .zero
   @State private var selectionRect: CGRect?
@@ -271,7 +273,9 @@ struct ComposerCanvas: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .scaleEffect(effectiveScale, anchor: .topLeading)
+      // Layout-based zoom: each card sizes/positions itself in screen space (frame × scale) and
+      // renders its text at the zoomed font, so it stays crisp instead of being a stretched bitmap.
+      // Only `pan` translates the whole layer; the scale lives inside the cards now.
       .offset(x: pan.width + panLive.width, y: pan.height + panLive.height)
 
       selectionRectView
@@ -436,7 +440,9 @@ struct ComposerCanvas: View {
       tool: $tool,
       zoomPercent: Int((effectiveScale * 100).rounded()),
       onCopy: { describeBoard() },
+      onCopyBoard: { copyBoard() },
       isCopying: isDescribing,
+      isCopyingBoard: isCopyingBoard,
       onZoomOut: { zoom(0.8, anchoredAt: zoomAnchor) },
       onZoomIn: { zoom(1.25, anchoredAt: zoomAnchor) },
       onZoomReset: { withAnimation(Theme.Motion.accessory) { scale = 1 } },
@@ -819,17 +825,40 @@ struct ComposerCanvas: View {
     }
   }
 
-  /// Copy the whole board as one self-contained block (connectors expanded).
+  /// Copy the whole board as one self-contained block (connectors expanded, and — when the user has
+  /// opted in and confirmed — `$(command)` substitution and `name=(value)` variables run at copy).
   private func copyBoard() {
+    guard !isCopyingBoard else { return }
     let plain = board.joinedPlainText()
     guard !plain.trimmed.isEmpty else {
       show(Toast(text: "Nothing to copy yet", symbol: "doc.on.doc", tint: .orange))
       return
     }
     let connectors = AppToken.scan(plain).filter { $0.selection != nil }.count
-    if connectors > 0 { show(Toast(text: "Resolving connectors\u{2026}", symbol: "arrow.triangle.2.circlepath", tint: .accentColor)) }
+    let shellCommands = ShellTemplate.commands(in: plain)
+    board.failedShellCommands = []   // a fresh copy clears last run's failure marks
+
+    // Shell only runs behind the opt-in toggle, and even then each copy confirms what will execute.
+    var runShell = false
+    if !shellCommands.isEmpty, ComposerPreferences.resolveShellAtCopy {
+      guard confirmRunShellCommands(shellCommands) else {
+        show(Toast(text: "Copy cancelled \u{00b7} commands not run", symbol: "xmark.circle", tint: .orange))
+        return
+      }
+      runShell = true
+    }
+
+    if runShell {
+      show(Toast(text: "Running \(shellCommands.count) command\(shellCommands.count == 1 ? "" : "s")\u{2026}", symbol: "terminal", tint: .accentColor))
+    } else if connectors > 0 {
+      show(Toast(text: "Resolving connectors\u{2026}", symbol: "arrow.triangle.2.circlepath", tint: .accentColor))
+    }
+    // Commands run in the board's grounding folder when one is set, else the user's home.
+    let commandDirectory = agent.groundingDirectory?.path ?? NSHomeDirectory()
+    isCopyingBoard = true
     Task {
-      let rendered = await SelfContainedRenderer.render(plain)
+      defer { isCopyingBoard = false }
+      let rendered = await SelfContainedRenderer.render(plain, runShell: runShell, commandDirectory: commandDirectory)
       guard !rendered.text.trimmed.isEmpty else {
         show(Toast(text: "Composer rendered no text from the non-empty board. Nothing was copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
         return
@@ -839,15 +868,38 @@ struct ComposerCanvas: View {
         return
       }
       if !rendered.failures.isEmpty {
+        // Mark the commands that failed so their `$(…)` tokens light up amber on the board.
+        board.failedShellCommands = Set(shellCommands.filter { command in
+          rendered.failures.contains { $0.hasPrefix("`\(command)`") }
+        })
         show(Toast(
-          text: "Copied with connector error\(rendered.failures.count == 1 ? "" : "s"):\n" + rendered.failures.joined(separator: "\n"),
+          text: "Copied with error\(rendered.failures.count == 1 ? "" : "s"):\n" + rendered.failures.joined(separator: "\n"),
           symbol: "exclamationmark.triangle.fill",
           tint: .orange))
         return
       }
-      let message = connectors > 0 ? "Copied \u{00b7} \(connectors) connector\(connectors == 1 ? "" : "s") resolved" : "Copied self-contained text"
+      var resolved: [String] = []
+      if runShell { resolved.append("\(shellCommands.count) command\(shellCommands.count == 1 ? "" : "s") run") }
+      if connectors > 0 { resolved.append("\(connectors) connector\(connectors == 1 ? "" : "s") resolved") }
+      let message = resolved.isEmpty ? "Copied self-contained text" : "Copied \u{00b7} " + resolved.joined(separator: ", ")
       show(Toast(text: message, symbol: "doc.on.doc.fill", tint: .accentColor))
     }
+  }
+
+  /// Before running shell pulled from the board, show exactly what will execute. Returns true only
+  /// if the user clicks Run & Copy. Modal on the main thread, so the copy can't race ahead of it.
+  @MainActor
+  private func confirmRunShellCommands(_ commands: [String]) -> Bool {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    let count = commands.count
+    alert.messageText = "Run \(count) shell command\(count == 1 ? "" : "s") before copying?"
+    let listed = commands.prefix(8).map { "•  \($0)" }.joined(separator: "\n")
+    let more = count > 8 ? "\n…and \(count - 8) more" : ""
+    alert.informativeText = "These run on your Mac now, and their output is pasted into the copied draft:\n\n\(listed)\(more)"
+    alert.addButton(withTitle: "Run & Copy")
+    alert.addButton(withTitle: "Cancel")
+    return alert.runModal() == .alertFirstButtonReturn
   }
 
   /// The toolbar Copy: snapshot the whole board state (text cards, shapes, diagrams, connections —

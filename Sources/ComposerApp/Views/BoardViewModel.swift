@@ -89,6 +89,10 @@ final class BoardViewModel: ObservableObject {
   /// (mentions, connector search, linter, selection bar) route here.
   @Published var editingCardID: UUID?
 
+  /// `$(…)` commands that failed on the last Copy Board, so their tokens render amber. Set by the
+  /// copy; cleared on the next copy and whenever the board text changes.
+  @Published var failedShellCommands: Set<String> = []
+
   private var interactions: [UUID: CardInteraction] = [:]
   private var movePreviewIDs: Set<UUID> = []
   private var movePreviewDelta: CGSize = .zero
@@ -1085,6 +1089,8 @@ final class BoardViewModel: ObservableObject {
 
   /// Called when a card's text changed (debounced persistence).
   func noteEdited(cardID: UUID, previousText: String) {
+    // Editing the board can change which commands exist, so last copy's failure marks are stale.
+    if !failedShellCommands.isEmpty { failedShellCommands = [] }
     // A live keystroke edit means the human authored this card now — flip its tag (e.g. when they
     // change a card the agent drew), so the agent can spot what changed on its next read.
     if editingCardID == cardID, let i = cards.firstIndex(where: { $0.id == cardID }), cards[i].whoWrote != Author.human {
@@ -1138,6 +1144,12 @@ final class BoardViewModel: ObservableObject {
 
   var hasContent: Bool {
     cards.contains { !plainText(for: $0).trimmed.isEmpty }
+  }
+
+  /// Copy-time variables defined anywhere on the board (`name = …` lines). A board is "one thing",
+  /// so a `$name` in one card styles against a definition in any other. Used only for styling.
+  var definedVariableNames: Set<String> {
+    ShellTemplate.definedNames(in: joinedPlainText())
   }
 
   // MARK: Reading order

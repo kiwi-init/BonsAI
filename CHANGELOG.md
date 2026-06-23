@@ -11,15 +11,35 @@ under the new version heading.
 
 ## [Unreleased]
 
-<!--
-Add a bullet under the matching heading for every user-facing change. Create a
-heading only when you have an entry for it; delete this comment when you do.
+## [1.0.5] - 2026-06-23
 
-### Added     — new capabilities
-### Changed   — behavior or UX that changed
-### Fixed     — bug fixes
-### Removed    — things taken out
--->
+### Added
+- **Copy-time shell resolution.** A board can now run shell when you copy it, pasting the output
+  straight into the self-contained draft. The syntax mirrors the shell: `$(command)` is command
+  substitution (run it, inline its stdout), and `name=(value)` defines a **board-scoped variable** —
+  the parentheses bound the value so you can define one mid-sentence, and you reference `$name` /
+  `${name}` from any other card, because a board is one thing. A value can be a chip, a `$(…)`
+  command, or text; the command behind a variable runs once no matter how many places reference it,
+  and the `name=(…)` definition itself is consumed from the copied output (it's plumbing).
+  Only names you actually defined match, so `$5` or `$HOME` in prose are left alone. The literal
+  source is all that's saved — expansion is recomputed on every copy, exactly like a resolved
+  `@app` chip. It's **off by default**: a *Resolve shell at copy time* toggle in Settings ▸
+  Connectors turns it on, and even then every copy first confirms which commands will run. A
+  command that fails is left literal and reported, so a copy never silently mangles what you wrote.
+  On the board the syntax reads as live code — `$(…)` commands tint green and monospaced, variables
+  violet — styled the same in the editor and the rendered card. Type `$` to autocomplete the board's
+  variables (the same menu `@` uses). Commands run in the board's **grounding folder** when one is
+  set (so `git`/`ls`/relative paths work), otherwise your home directory; each command is capped by
+  a timeout so a hung tool can't freeze the copy, an identical command runs once per copy, and a
+  command that failed lights up **amber** on the board so you can see which `$(…)` to fix.
+- **Crisp zoom.** The board now zooms by re-laying-out text at the target scale instead of stretching
+  a bitmap, so cards stay sharp at any zoom (and track ⌘+/⌘−). The live editor of the card you're
+  actively typing in is still transform-scaled; every other card is crisp.
+
+### Fixed
+- **Reloaded image cards came back empty.** An image card now re-decodes reliably when a saved board
+  reopens or the card pans back into view, instead of showing the dashed placeholder despite having a
+  valid image — the loader runs on every appearance rather than once.
 
 ## [1.0.4] - 2026-06-23
 

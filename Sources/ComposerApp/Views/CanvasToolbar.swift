@@ -44,9 +44,14 @@ enum CanvasTool: Equatable {
 struct CanvasToolbar: View {
   @Binding var tool: CanvasTool
   let zoomPercent: Int
+  /// Describe Board — Claude reads the whole board and writes a self-contained description.
   var onCopy: () -> Void
-  /// True while the Copy action's `claude -p` describe is in flight — the button shows a spinner.
+  /// Copy Board — deterministic self-contained render (expands @connectors and copy-time shell).
+  var onCopyBoard: () -> Void
+  /// True while Describe Board's `claude -p` call is in flight — its button shows a spinner.
   var isCopying: Bool
+  /// True while Copy Board's shell expansion runs — its button shows a spinner and is inert.
+  var isCopyingBoard: Bool = false
   var onZoomOut: () -> Void
   var onZoomIn: () -> Void
   var onZoomReset: () -> Void
@@ -85,9 +90,15 @@ struct CanvasToolbar: View {
       .help("Reset to 100%")
       ToolButton(symbol: "plus.magnifyingglass", help: "Zoom in", action: onZoomIn)
       ToolButton(symbol: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit board", action: onFit)
-      ToolButton(symbol: "doc.on.doc",
-                 help: "Copy board  ·  Claude reads the whole board and writes a self-contained description",
-                 busy: isCopying, action: onCopy)
+
+      divider
+
+      TextToolButton(title: "Describe Board",
+                     help: "Claude reads the whole board and writes a self-contained description",
+                     busy: isCopying, action: onCopy)
+      TextToolButton(title: "Copy Board",
+                     help: "Copy self-contained text  ·  expands @connectors and copy-time $(shell)",
+                     busy: isCopyingBoard, action: onCopyBoard)
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 5)
@@ -160,5 +171,45 @@ private struct ToolButton: View {
     if disabled { return AnyShapeStyle(Color.white.opacity(0.26)) }
     if active { return AnyShapeStyle(Color.accentColor) }
     return AnyShapeStyle(Color.white.opacity(hovering ? 0.95 : 0.62))
+  }
+}
+
+/// A labelled board action (Describe Board, Copy Board) — same hover wash and busy-spinner recipe
+/// as `ToolButton`, but reads in plain English instead of a glyph. Sized to the rail's height so it
+/// sits flush with the tool icons.
+private struct TextToolButton: View {
+  let title: String
+  let help: String
+  var busy = false
+  var action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      Group {
+        if busy {
+          ProgressView()
+            .controlSize(.small)
+            .tint(Color.white.opacity(0.9))
+        } else {
+          Text(title)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(Color.white.opacity(hovering ? 0.98 : 0.78))
+            .fixedSize()
+        }
+      }
+      .frame(height: ToolMetrics.side)
+      .padding(.horizontal, 11)
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(hovering && !busy ? Color.white.opacity(0.12) : Color.clear)
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(busy)
+    .onHover { hovering = $0 }
+    .help(help)
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 }
