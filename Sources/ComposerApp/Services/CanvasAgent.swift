@@ -12,9 +12,22 @@ struct AgentMessage: Identifiable, Equatable {
 /// `stream-json` mode with the canvas MCP server auto-attached (canvas tools only), and parses the
 /// stream into a chat transcript. Session continuity is kept with `--resume`, so it's one ongoing
 /// conversation. The agent's edits land on the board live via MCP → CanvasBridge.
+/// The streaming chat transcript, split out of `CanvasAgent` so its high-frequency updates (one
+/// per assistant token / tool call) re-render only the dock's message list — not every surface
+/// that observes the agent's coarse status. The agent dock observes this; the canvas never does.
+@MainActor
+final class AgentTranscript: ObservableObject {
+  @Published private(set) var messages: [AgentMessage] = []
+  func append(_ message: AgentMessage) { messages.append(message) }
+  func removeAll() { messages.removeAll() }
+}
+
 @MainActor
 final class CanvasAgent: ObservableObject {
-  @Published private(set) var messages: [AgentMessage] = []
+  /// Streaming messages live in their own observable so the board, toolbar, and ⌘K palette can
+  /// observe the agent for *coarse* state (below) without re-rendering on every streamed token.
+  let transcript = AgentTranscript()
+  /// Coarse, low-frequency state — safe for the canvas / toolbar / palette to observe directly.
   @Published private(set) var isRunning = false
   /// A folder the agent may read (repo or not) to ground its suggestions in real files. When set,
   /// the agent runs there with read-only file tools; otherwise it's canvas-only.
@@ -23,6 +36,10 @@ final class CanvasAgent: ObservableObject {
   private var sessionID: String?
   private var process: Process?
   private var didRequestStop = false
+  /// Bumped on every `send` and `stop`. A `run` only writes back coarse state / appends a failure
+  /// while its captured token is still current, so a stopped-or-superseded turn that's still
+  /// draining can't clobber the next turn's `isRunning`/`process` or inject a late error message.
+  private var runToken = 0
   private static let groundingKey = "agent.groundingDirectory"
 
   init() {
@@ -64,31 +81,45 @@ final class CanvasAgent: ObservableObject {
   func send(_ text: String) {
     let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !prompt.isEmpty, !isRunning else { return }
-    messages.append(AgentMessage(role: .user, text: prompt))
+    transcript.append(AgentMessage(role: .user, text: prompt))
     didRequestStop = false
     isRunning = true
+    runToken &+= 1
+    let token = runToken
     let resume = sessionID
-    Task { await run(prompt: prompt, resume: resume) }
+    Task { await run(prompt: prompt, resume: resume, token: token) }
   }
 
   func stop() {
     didRequestStop = true
     process?.terminate()
+    process = nil
     isRunning = false
+    // Invalidate the in-flight turn so its still-draining tail can't write back over a later one.
+    runToken &+= 1
   }
 
   func reset() {
     stop()
     sessionID = nil
-    messages.removeAll()
+    transcript.removeAll()
   }
 
   // MARK: Run one turn
 
-  private func run(prompt: String, resume: String?) async {
-    guard let claude = Self.claudePath else {
-      messages.append(AgentMessage(role: .error, text: "Couldn't find the `claude` CLI. Install Claude Code, then reopen Composer."))
+  private func run(prompt: String, resume: String?, token: Int) async {
+    // Write back coarse state only while this turn is still the current one — a stop() or a newer
+    // send() bumps `runToken`, after which this (now superseded) turn must leave shared state alone.
+    func finish(_ work: () -> Void) {
+      guard token == runToken else { return }
+      work()
       isRunning = false
+      self.process = nil
+    }
+
+    guard let claude = Self.claudePath else {
+      transcript.append(AgentMessage(role: .error, text: "Couldn't find the `claude` CLI. Install Claude Code, then reopen Composer."))
+      finish {}
       return
     }
     let mcp = #"{"mcpServers":{"canvas":{"type":"http","url":"http://127.0.0.1:\#(CanvasServer.port)/mcp"}}}"#
@@ -114,13 +145,18 @@ final class CanvasAgent: ObservableObject {
     let stdout = Pipe(), stderr = Pipe()
     process.standardOutput = stdout
     process.standardError = stderr
+
+    // A stop() between this turn being queued and reaching here already invalidated the token —
+    // don't launch a process that nobody can see in `self.process` (and so nobody could stop).
+    guard token == runToken else { return }
     self.process = process
 
     do {
       try process.run()
     } catch {
-      messages.append(AgentMessage(role: .error, text: UserFacingError.message(for: error, while: "Starting Claude")))
-      isRunning = false; self.process = nil; return
+      transcript.append(AgentMessage(role: .error, text: UserFacingError.message(for: error, while: "Starting Claude")))
+      finish {}
+      return
     }
 
     // Claude may put diagnostics on either stream. Drain stderr while stream-json is consumed from
@@ -138,7 +174,8 @@ final class CanvasAgent: ObservableObject {
     var nonProtocolOutput: [String] = []
     do {
       for try await line in stdout.fileHandleForReading.bytes.lines {
-        if Task.isCancelled { break }
+        // Stop consuming (and appending) a superseded turn's stream the moment it's invalidated.
+        if Task.isCancelled || token != runToken { break }
         if handleLine(line) {
           sawOutput = true
         } else {
@@ -155,23 +192,23 @@ final class CanvasAgent: ObservableObject {
     case let .failure(error):
       stderrText = UserFacingError.message(for: error, while: "Reading Claude’s error output")
     }
-    if process.terminationStatus != 0, !didRequestStop {
-      messages.append(AgentMessage(
-        role: .error,
-        text: UserFacingError.commandFailure(
-          command: "Claude",
-          status: process.terminationStatus,
-          stdout: nonProtocolOutput.joined(separator: "\n"),
-          stderr: stderrText)))
-    } else if !sawOutput {
-      let diagnostic = UserFacingError.commandOutput(
-        stdout: nonProtocolOutput.joined(separator: "\n"), stderr: stderrText)
-      if !diagnostic.isEmpty {
-        messages.append(AgentMessage(role: .error, text: "Claude returned output Composer could not read: \(diagnostic)"))
+    finish {
+      if process.terminationStatus != 0, !didRequestStop {
+        transcript.append(AgentMessage(
+          role: .error,
+          text: UserFacingError.commandFailure(
+            command: "Claude",
+            status: process.terminationStatus,
+            stdout: nonProtocolOutput.joined(separator: "\n"),
+            stderr: stderrText)))
+      } else if !sawOutput {
+        let diagnostic = UserFacingError.commandOutput(
+          stdout: nonProtocolOutput.joined(separator: "\n"), stderr: stderrText)
+        if !diagnostic.isEmpty {
+          transcript.append(AgentMessage(role: .error, text: "Claude returned output Composer could not read: \(diagnostic)"))
+        }
       }
     }
-    isRunning = false
-    self.process = nil
   }
 
   /// Parse one stream-json line into transcript updates. Returns true if it produced output.
@@ -191,10 +228,10 @@ final class CanvasAgent: ObservableObject {
         switch item["type"] as? String {
         case "text":
           let t = (item["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-          if !t.isEmpty { messages.append(AgentMessage(role: .assistant, text: t)); produced = true }
+          if !t.isEmpty { transcript.append(AgentMessage(role: .assistant, text: t)); produced = true }
         case "tool_use":
           let name = (item["name"] as? String ?? "").replacingOccurrences(of: "mcp__canvas__", with: "")
-          messages.append(AgentMessage(role: .tool, text: toolSummary(name, item["input"] as? [String: Any])))
+          transcript.append(AgentMessage(role: .tool, text: toolSummary(name, item["input"] as? [String: Any])))
           produced = true
         default: break
         }

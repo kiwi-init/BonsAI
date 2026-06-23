@@ -19,7 +19,9 @@ struct AgentDock: View {
     VStack(spacing: 0) {
       header
       Divider().overlay(Theme.Palette.separator)
-      transcript
+      // The message list observes the transcript directly, so a streamed token re-renders only it —
+      // not this dock's header/input, and never the canvas (which observes the agent's coarse state).
+      AgentTranscriptView(transcript: agent.transcript, isRunning: agent.isRunning)
       inputBar
     }
     .frame(width: width)
@@ -81,29 +83,84 @@ struct AgentDock: View {
     }
   }
 
-  // MARK: Transcript
+  // MARK: Input
 
-  private var transcript: some View {
+  private var inputBar: some View {
+    HStack(alignment: .bottom, spacing: 8) {
+      TextField("Message the agent…", text: $draft, axis: .vertical)
+        .textFieldStyle(.plain)
+        .lineLimit(1...6)
+        .font(.callout)
+        .foregroundStyle(Theme.Palette.body)
+        .focused($inputFocused)
+        .onSubmit(submit)
+      if agent.isRunning {
+        Button(action: agent.stop) {
+          Image(systemName: "stop.circle.fill").font(.title3).foregroundStyle(Theme.Palette.title)
+        }.buttonStyle(.plain).help("Stop")
+      } else {
+        Button(action: submit) {
+          Image(systemName: "arrow.up.circle.fill")
+            .font(.title3)
+            .foregroundStyle(canSend ? Color.accentColor : Theme.Palette.title.opacity(0.6))
+        }.buttonStyle(.plain).disabled(!canSend)
+      }
+    }
+    .padding(.leading, 14).padding(.trailing, 10).padding(.vertical, 9)
+    .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
+    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
+    .padding(12)
+    .onAppear { inputFocused = true }
+  }
+
+  private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+  private func submit() {
+    let text = draft
+    draft = ""
+    agent.send(text)
+    inputFocused = true
+  }
+
+  private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: symbol).font(.caption.weight(.medium))
+        .foregroundStyle(Theme.Palette.title).frame(width: 24, height: 24).contentShape(Rectangle())
+    }
+    .buttonStyle(.plain).help(help)
+  }
+}
+
+// MARK: - Transcript
+
+/// The scrolling message list. Split into its own view that observes only the `AgentTranscript`,
+/// so the high-frequency streaming updates re-render just this list — not the dock chrome around it,
+/// and never the canvas (which observes the agent only for coarse `isRunning`/grounding state).
+private struct AgentTranscriptView: View {
+  @ObservedObject var transcript: AgentTranscript
+  let isRunning: Bool
+
+  var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 11) {
-          if agent.messages.isEmpty { emptyState }
-          ForEach(agent.messages) { bubble($0).id($0.id) }
-          if agent.isRunning { thinkingRow.id("thinking") }
+          if transcript.messages.isEmpty { emptyState }
+          ForEach(transcript.messages) { bubble($0).id($0.id) }
+          if isRunning { thinkingRow.id("thinking") }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
       }
       .scrollIndicators(.never)
-      .onChange(of: agent.messages.count) { _, _ in scrollToEnd(proxy) }
-      .onChange(of: agent.isRunning) { _, running in if running { scrollToEnd(proxy) } }
+      .onChange(of: transcript.messages.count) { _, _ in scrollToEnd(proxy) }
+      .onChange(of: isRunning) { _, running in if running { scrollToEnd(proxy) } }
     }
   }
 
   private func scrollToEnd(_ proxy: ScrollViewProxy) {
     withAnimation(.easeOut(duration: 0.18)) {
-      if agent.isRunning { proxy.scrollTo("thinking", anchor: .bottom) }
-      else { proxy.scrollTo(agent.messages.last?.id, anchor: .bottom) }
+      if isRunning { proxy.scrollTo("thinking", anchor: .bottom) }
+      else { proxy.scrollTo(transcript.messages.last?.id, anchor: .bottom) }
     }
   }
 
@@ -163,57 +220,10 @@ struct AgentDock: View {
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  // MARK: Input
-
-  private var inputBar: some View {
-    HStack(alignment: .bottom, spacing: 8) {
-      TextField("Message the agent…", text: $draft, axis: .vertical)
-        .textFieldStyle(.plain)
-        .lineLimit(1...6)
-        .font(.callout)
-        .foregroundStyle(Theme.Palette.body)
-        .focused($inputFocused)
-        .onSubmit(submit)
-      if agent.isRunning {
-        Button(action: agent.stop) {
-          Image(systemName: "stop.circle.fill").font(.title3).foregroundStyle(Theme.Palette.title)
-        }.buttonStyle(.plain).help("Stop")
-      } else {
-        Button(action: submit) {
-          Image(systemName: "arrow.up.circle.fill")
-            .font(.title3)
-            .foregroundStyle(canSend ? Color.accentColor : Theme.Palette.title.opacity(0.6))
-        }.buttonStyle(.plain).disabled(!canSend)
-      }
-    }
-    .padding(.leading, 14).padding(.trailing, 10).padding(.vertical, 9)
-    .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
-    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
-    .padding(12)
-    .onAppear { inputFocused = true }
-  }
-
-  private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-  private func submit() {
-    let text = draft
-    draft = ""
-    agent.send(text)
-    inputFocused = true
-  }
-
   /// Render inline markdown (**bold**, `code`, _italic_, links) while keeping newlines.
   private static func markdown(_ text: String) -> AttributedString {
     (try? AttributedString(
       markdown: text,
       options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
-  }
-
-  private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-      Image(systemName: symbol).font(.caption.weight(.medium))
-        .foregroundStyle(Theme.Palette.title).frame(width: 24, height: 24).contentShape(Rectangle())
-    }
-    .buttonStyle(.plain).help(help)
   }
 }
