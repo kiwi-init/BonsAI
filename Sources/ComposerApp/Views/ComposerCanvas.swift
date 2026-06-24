@@ -258,24 +258,25 @@ struct ComposerCanvas: View {
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      // Transformed cards. Off-screen cards are culled before SwiftUI builds their views.
-      ZStack(alignment: .topLeading) {
-        ForEach(visibleCards(in: viewportSize)) { card in
-          BoardCardView(
-            card: card,
-            interaction: board.interaction(for: card.id),
-            isSelected: board.selectedCardIDs.contains(card.id),
-            isEditing: board.editingCardID == card.id,
-            scale: effectiveScale,
-            board: board,
-            // Only the select tool may grab a card. In a drawing tool the card is click-through, so
-            // a drag that starts over it draws a new element instead of selecting/moving the card.
-            selectable: tool == .select,
-            onEscape: { dismiss() }
-          )
-          .zIndex(Double(card.z) + (board.primarySelectedCardID == card.id ? 10_000 : 0))
-        }
-      }
+      // The card layer is isolated and `Equatable` so SwiftUI skips rebuilding every card when only a
+      // transient gesture changed (draw / freehand / selection rect / pan / zoom). The live pan
+      // offset is applied OUTSIDE it, so panning slides the already-built layer instead of
+      // re-evaluating a single card — this is what closes the "feels heavy" gap with the capture
+      // overlay. Off-screen cards are still culled before the layer builds them.
+      BoardCardLayer(
+        cards: visibleCards(in: viewportSize),
+        board: board,
+        selectedCardIDs: board.selectedCardIDs,
+        editingCardID: board.editingCardID,
+        primarySelectedCardID: board.primarySelectedCardID,
+        scale: effectiveScale,
+        // Only the select tool may grab a card. In a drawing tool the card is click-through, so a
+        // drag that starts over it draws a new element instead of selecting/moving the card.
+        selectable: tool == .select,
+        failedShellCommands: board.failedShellCommands,
+        onEscape: { dismiss() }
+      )
+      .equatable()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       // Layout-based zoom: each card sizes/positions itself in screen space (frame × scale) and
       // renders its text at the zoomed font, so it stays crisp instead of being a stretched bitmap.
@@ -1586,6 +1587,60 @@ private struct ActiveCardOverlays: View {
 
   private func clamp(_ value: CGFloat, _ lower: CGFloat, _ upper: CGFloat) -> CGFloat {
     Swift.min(Swift.max(value, lower), upper)
+  }
+}
+
+/// The board's card layer, pulled out of the canvas body and made `Equatable` so SwiftUI re-renders
+/// the cards only when something that actually affects how they draw changes — never for a transient
+/// gesture (draw / freehand / selection rect / live pan), which all mutate canvas `@State` that this
+/// layer doesn't depend on. The comparison covers exactly that state: the visible cards themselves,
+/// the selection/editing/primary ids, the zoom, the select-tool gate, and the shell-failure marks.
+///
+/// `board` and `onEscape` are excluded from `==` on purpose — the board is one stable instance and
+/// the closure is stable, so comparing them would be meaningless. `definedVariableNames` is also left
+/// out deliberately: it's an O(n) string rebuild to read and only changes when card text is committed
+/// (which already changes `cards`), so including it would cost per frame for no behavior gain.
+///
+/// Each `BoardCardView` still observes its own `CardInteraction`, so editing/typing a card re-renders
+/// just that card even while this whole layer is skipped — the same way the capture overlay stays
+/// immediate.
+private struct BoardCardLayer: View, Equatable {
+  let cards: [CardState]
+  let board: BoardViewModel
+  let selectedCardIDs: Set<UUID>
+  let editingCardID: UUID?
+  let primarySelectedCardID: UUID?
+  let scale: CGFloat
+  let selectable: Bool
+  let failedShellCommands: Set<String>
+  var onEscape: () -> Void
+
+  static func == (lhs: BoardCardLayer, rhs: BoardCardLayer) -> Bool {
+    lhs.cards == rhs.cards &&
+      lhs.selectedCardIDs == rhs.selectedCardIDs &&
+      lhs.editingCardID == rhs.editingCardID &&
+      lhs.primarySelectedCardID == rhs.primarySelectedCardID &&
+      lhs.scale == rhs.scale &&
+      lhs.selectable == rhs.selectable &&
+      lhs.failedShellCommands == rhs.failedShellCommands
+  }
+
+  var body: some View {
+    ZStack(alignment: .topLeading) {
+      ForEach(cards) { card in
+        BoardCardView(
+          card: card,
+          interaction: board.interaction(for: card.id),
+          isSelected: selectedCardIDs.contains(card.id),
+          isEditing: editingCardID == card.id,
+          scale: scale,
+          board: board,
+          selectable: selectable,
+          onEscape: onEscape
+        )
+        .zIndex(Double(card.z) + (primarySelectedCardID == card.id ? 10_000 : 0))
+      }
+    }
   }
 }
 
