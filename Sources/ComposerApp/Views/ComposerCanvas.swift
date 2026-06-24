@@ -142,6 +142,10 @@ struct ComposerCanvas: View {
       .onReceive(NotificationCenter.default.publisher(for: .composerCopy)) { _ in copyBoard() }
       .onReceive(NotificationCenter.default.publisher(for: .composerCompileBoard)) { _ in runCompile() }
       .onReceive(NotificationCenter.default.publisher(for: .composerShowSettings)) { _ in openSettings() }
+      .onReceive(NotificationCenter.default.publisher(for: .composerCaptureCompleted)) { note in
+        guard let path = note.userInfo?["path"] as? String else { return }
+        addCapturedImage(path: path)
+      }
       .onReceive(NotificationCenter.default.publisher(for: .composerPrevDump)) { _ in handlePrevDump() }
       .onReceive(NotificationCenter.default.publisher(for: .composerNextDump)) { _ in handleNextDump() }
       .onReceive(NotificationCenter.default.publisher(for: .composerNewDump)) { _ in handleNewDump() }
@@ -782,6 +786,9 @@ struct ComposerCanvas: View {
       PaletteCommand(id: "compile", title: "Compile board into one draft", symbol: "wand.and.stars", shortcut: "⌘R") { runCompile() },
       PaletteCommand(id: "copy", title: "Copy whole board", subtitle: "Self-contained · connectors resolved", symbol: "doc.on.doc", shortcut: "⌘⇧C") { copyBoard() },
       PaletteCommand(id: "describe", title: "Copy board description with Claude", symbol: "doc.text.magnifyingglass") { describeBoard() },
+      PaletteCommand(id: "capture", title: "Capture screen to board", subtitle: "Read on-device into an agent-ready card", symbol: "text.viewfinder", shortcut: ShortcutStore.shared.captureShortcut.displayString) {
+        NotificationCenter.default.post(name: .composerCaptureToBoard, object: nil)
+      },
       PaletteCommand(id: "fit", title: "Fit board to view", symbol: "arrow.up.left.and.arrow.down.right") {
         withAnimation(Theme.Motion.accessory) { fitBoard(in: lastViewportSize) }
       },
@@ -1061,6 +1068,41 @@ struct ComposerCanvas: View {
     }
     if let image = firstImage(from: pasteboard), let url = ComposerTextView.savePNG(image) {
       board.addImageObject(path: url.path, at: boardPoint(forViewport: viewportCenter))
+    }
+  }
+
+  /// A region captured via "Snap to board" landed: drop it as an image card at the viewport center,
+  /// then read it on-device in two stages so the card paints fast — OCR first (the floor), then an
+  /// Apple Intelligence cleanup/classification swaps in when it's ready. Both feed the compiled prompt.
+  private func addCapturedImage(path: String) {
+    let id = board.addImageObject(path: path, at: boardPoint(forViewport: viewportCenter))
+    // Reuse the just-captured pixels; only fall back to decoding the PNG if the hand-off missed.
+    let captured = CapturedShotStore.shared.take(path)
+    Task {
+      let ocr: String
+      if let captured {
+        ocr = await ImageUnderstanding.recognizeText(in: captured)
+      } else if let understanding = await ImageUnderstanding.analyze(imagePath: path) {
+        board.setImageUnderstanding(id, understanding)
+        show(Toast(text: "Screenshot read \u{00b7} ready for the prompt", symbol: "checkmark.circle.fill", tint: .green))
+        return
+      } else {
+        show(Toast(text: "Added screenshot \u{00b7} no text found", symbol: "photo", tint: .accentColor))
+        return
+      }
+
+      // Stage 1: show the OCR text immediately so the card is useful within a beat.
+      if !ocr.isEmpty {
+        board.setImageUnderstanding(id, "[Screenshot]\n\(ocr)")
+        show(Toast(text: "Screenshot read \u{00b7} ready for the prompt", symbol: "checkmark.circle.fill", tint: .green))
+      } else {
+        show(Toast(text: "Added screenshot \u{00b7} no text found", symbol: "photo", tint: .accentColor))
+      }
+
+      // Stage 2: upgrade to the cleaned, classified version in the background if the model can.
+      if let refined = await ImageUnderstanding.refine(ocr: ocr), !refined.isEmpty {
+        board.setImageUnderstanding(id, refined)
+      }
     }
   }
 
