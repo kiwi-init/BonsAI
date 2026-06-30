@@ -11,6 +11,26 @@ under the new version heading.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-06-30
+
+### Added
+- **Smart paste.** Pasting a GitHub issue/PR URL, an existing file path (`/…`, `~/…`, or `file://…`), or a library name like `next.js` / `vercel/next.js` now becomes the matching connector chip (`@github`, `@finder`, `@context7`) instead of raw text.
+- **Quick capture.** A menu-bar leaf opens a one-line capture field (↩ sends to the current board). macOS **Services → Send to BonsAI** and `bonsai://capture?text=…` use the same path. The loopback API adds `POST /capture`.
+- **Codex engine.** Refine and Compile can run through `codex exec` (read-only sandbox) when Codex CLI is installed — toggle in Settings ▸ Runtime.
+- **Canvas API docs + integrations.** [docs/canvas-api.md](docs/canvas-api.md) formalizes the `127.0.0.1:7337` API; [integrations/raycast](integrations/raycast/README.md) and [integrations/alfred](integrations/alfred/README.md) ship starter scripts.
+- **Agent tool permission prompts.** Agent-run MCP tool calls now ask before running, remember
+  allowed tools, and include a Settings control to reset remembered permissions.
+
+### Fixed
+- **Shift+Enter in the Agent chat inserts a newline instead of sending.** The input used `.onSubmit`,
+  which fired on every Return — including Shift+Return — so holding Shift still sent the message. It
+  now follows the standard chat convention (Slack, Discord, Linear): plain **Enter sends**, and
+  **Shift+Enter** breaks the line at the caret. ([#27](https://github.com/ojowwalker77/BonsAI/issues/27))
+- **Shift+Enter now actually breaks the line (follow-up).** The fix above intercepted Return but
+  returned `.ignored` for Shift+Return, so the event fell through to the field editor and **selected
+  all the text** instead of inserting a newline. Shift+Enter now inserts the break directly into the
+  focused field editor at the caret. ([#27](https://github.com/ojowwalker77/BonsAI/issues/27))
+
 ## [1.2.0] - 2026-06-30
 
 ### Added
