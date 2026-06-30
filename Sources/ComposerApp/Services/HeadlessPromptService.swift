@@ -47,26 +47,30 @@ struct HeadlessPromptService {
   /// self-contained, paste-ready brief. `state` is the board graph JSON (the same snapshot the
   /// canvas MCP `get_canvas` exposes); unlike `compileBoard` (which merges card prose) this reads
   /// the full graph, so the description covers everything the board holds.
-  func describeBoard(state: String, engine: HeadlessEngine) async throws -> String {
+  func describeBoard(state: String, engine: HeadlessEngine, model: ClaudeModel) async throws -> String {
     let prompt = """
     \(BoardDescribe.instruction)
 
     ===== BOARD STATE (JSON graph: nodes, edges, reading order) =====
     \(state)
     """
-    return try await run(prompt: prompt, engine: engine)
+    return try await run(prompt: prompt, engine: engine, model: model)
   }
 
-  private func run(prompt: String, engine: HeadlessEngine) async throws -> String {
+  /// `model` is optional: when nil the CLI picks its own default (used by Refine / Compile);
+  /// Describe passes the user's chosen `ClaudeModel` so it can run on a different tier.
+  private func run(prompt: String, engine: HeadlessEngine, model: ClaudeModel? = nil) async throws -> String {
     guard let executable = CommandLineToolLocator.executableURL(for: engine) else {
       throw HeadlessPromptError.failed("\(engine.title) CLI is not installed. Check Settings to install or re-detect it.")
     }
-    let arguments: [String]
+    var arguments: [String]
     switch engine {
     case .claude:
       arguments = [executable.path, "-p", prompt]
+      if let model { arguments += ["--model", model.cliAlias] }
     case .codex:
       // Read-only sandbox: one-shot refine/compile must not mutate the user's repo.
+      // `model` is Claude-only (a `claude --model` alias), so Codex ignores it.
       arguments = [executable.path, "exec", "--sandbox", "read-only", "--ephemeral", prompt]
     }
     let result: Shell.Result

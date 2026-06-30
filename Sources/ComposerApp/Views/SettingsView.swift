@@ -152,6 +152,10 @@ private struct SettingsContent: View {
   @ObservedObject private var shortcutStore = ShortcutStore.shared
   @AppStorage(EnginePreferences.claudeEnabledKey) private var claudeEnabled = true
   @AppStorage(EnginePreferences.codexEnabledKey) private var codexEnabled = true
+  // Both keys are shared with their in-canvas pickers (the Agent dock for chat), so the controls
+  // mirror each other live. See [[ModelPreferences]].
+  @AppStorage(ModelPreferences.chatModelKey) private var chatModel: ClaudeModel = ModelPreferences.defaultChatModel
+  @AppStorage(ModelPreferences.describeModelKey) private var describeModel: ClaudeModel = ModelPreferences.defaultDescribeModel
   @AppStorage(ComposerPreferences.panelTransparencyKey) private var panelTransparency = ComposerPreferences.defaultPanelTransparency
   @AppStorage(ComposerPreferences.resolveShellAtCopyKey) private var resolveShellAtCopy = false
   /// Whether the agent has standing "Always Allow" tool grants - drives the reset control's
@@ -244,6 +248,8 @@ private struct SettingsContent: View {
         }
       }
 
+      modelsCard
+
       Label("CLI prompts stay on your configured agent accounts. Apple Intelligence runs the on-device lint and never sends a draft off your Mac.", systemImage: "lock.fill")
         .font(.caption)
         .foregroundStyle(Theme.Palette.count)
@@ -280,6 +286,50 @@ private struct SettingsContent: View {
       }
     }
     .onAppear { agentHasGrants = AgentPermissionBroker.hasRememberedGrants }
+  }
+
+  /// Per-surface model choice. Chat mirrors the Agent dock's picker (same key); Describe is the only
+  /// place to set the model the board-description copy runs on. Refine/Compile aren't listed — they
+  /// stay on the CLI default deliberately.
+  private var modelsCard: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("MODELS").sectionLabel()
+      VStack(spacing: 0) {
+        modelRow(
+          title: "Agent chat",
+          subtitle: "The in-canvas agent you talk to. Mirrors the picker in the Agent panel.",
+          selection: $chatModel)
+        Divider().overlay(Theme.Palette.separator)
+        modelRow(
+          title: "Describe board",
+          subtitle: "The toolbar copy that summarizes the whole board into a paste-ready brief.",
+          selection: $describeModel)
+      }
+      .padding(.horizontal, 13)
+      .settingsCard()
+    }
+  }
+
+  private func modelRow(title: String, subtitle: String, selection: Binding<ClaudeModel>) -> some View {
+    HStack(spacing: 11) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(.callout.weight(.medium)).foregroundStyle(Theme.Palette.body)
+        Text(subtitle)
+          .font(.caption).foregroundStyle(Theme.Palette.menuDesc)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      Spacer(minLength: 8)
+      Picker("", selection: selection) {
+        ForEach(ClaudeModel.allCases) { model in
+          Text(model.title).tag(model)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .fixedSize()
+      .tint(Theme.Palette.body)
+    }
+    .padding(.vertical, 11)
   }
 
   /// A live count of what's ready, in the mono "instrument" voice. One status dot, neutral capsule.

@@ -947,7 +947,7 @@ struct ComposerCanvas: View {
     show(Toast(text: "Describing board\u{2026}", symbol: "doc.on.doc", tint: .accentColor))
     Task {
       do {
-        let description = try await service.describeBoard(state: state, engine: engine)
+        let description = try await service.describeBoard(state: state, engine: engine, model: ModelPreferences.describeModel)
         if copyToClipboard(description) {
           show(Toast(text: "Copied board description", symbol: "doc.on.doc.fill", tint: .accentColor))
         } else {

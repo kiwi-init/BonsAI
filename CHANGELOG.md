@@ -11,6 +11,13 @@ under the new version heading.
 
 ## [Unreleased]
 
+### Added
+- **Model pickers for the agent chat and board description.** Choose which Claude model each runs on
+  (Opus / Sonnet / Haiku). The chat picker lives in the Agent panel header and mirrors a matching
+  control in **Settings ▸ Runtime ▸ Models**; describing the board has its own picker in the same
+  place. Chat defaults to **Opus**, describe defaults to **Sonnet**. The choice is passed to
+  `claude --model`; Refine and Compile stay on the CLI default.
+
 ## [1.2.0] - 2026-06-30
 
 ### Added

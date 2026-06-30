@@ -57,6 +57,12 @@ engine's invocation (and any **headless/non-interactive flags** it needs) is one
 new `case` here. Failure handling is deliberately blunt: a non-zero exit becomes
 the trimmed stderr surfaced as a toast; empty stdout is treated as failure too.
 
+One of these — **Describe board** (the toolbar copy that summarizes the whole
+board graph) — passes its own `--model`, read from
+[`ModelPreferences`](../Sources/ComposerApp/Support/ModelPreferences.swift)
+(default Sonnet, picked in Settings ▸ Runtime ▸ Models). Refine and Compile pass
+no `--model` and stay on the CLI's own default.
+
 ### Path 2 — streaming canvas agent ([`CanvasAgent`](../Sources/ComposerApp/Services/CanvasAgent.swift))
 
 This is the conversational agent in the dock. Each turn spawns `claude` in
@@ -65,6 +71,7 @@ and reshape the board live while it talks. The invocation:
 
 ```text
 claude -p "<prompt>"
+  --model <opus|sonnet|haiku>                # the chat model; default opus
   --output-format stream-json --verbose
   --mcp-config '{"mcpServers":{"canvas":{"type":"http","url":"http://127.0.0.1:7337/mcp"}}}'
   --allowedTools "mcp__canvas__*"            # + ,Read,Grep,Glob when grounded
@@ -74,6 +81,12 @@ claude -p "<prompt>"
 
 What each piece buys us:
 
+- **`--model`** — which Claude model the chat runs on, read from
+  [`ModelPreferences`](../Sources/ComposerApp/Support/ModelPreferences.swift) at
+  send time (default Opus). It's a CLI *alias* (`opus` / `sonnet` / `haiku`), so
+  the CLI resolves it to the latest model in that tier — BonsAI never pins a
+  dated snapshot. The picker lives in the Agent dock header and mirrors the one
+  in Settings ▸ Runtime ▸ Models (both bind the same `UserDefaults` key).
 - **`--output-format stream-json --verbose`** — the agent emits one JSON object
   per line (`system` / `assistant` / `result`). `handleLine(_:)` parses those
   into the chat transcript: assistant `text` becomes a reply, `tool_use` becomes
