@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self, selector: #selector(toggle),
       name: .composerToggleWindow, object: nil)
     NotificationCenter.default.addObserver(
+      self, selector: #selector(showBoard),
+      name: .composerShowWindow, object: nil)
+    NotificationCenter.default.addObserver(
       self, selector: #selector(captureToBoard),
       name: .composerCaptureToBoard, object: nil)
 
@@ -38,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func toggle() { panelController.toggle() }
+  @objc private func showBoard() { panelController.show() }
 
   /// "Snap to board": run the region capture overlay, save the shot, summon the board, and hand the
   /// PNG to the canvas to add the card and read it on-device. Capture runs above all apps, so this
@@ -77,8 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     switch url.host?.lowercased() {
     case "capture":
       if let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-        .queryItems?.first(where: { $0.name == "text" })?.value?
-        .removingPercentEncoding,
+        .queryItems?.first(where: { $0.name == "text" })?.value,
          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         CaptureInbox.shared.enqueue(text)
       }

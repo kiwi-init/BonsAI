@@ -105,7 +105,7 @@ final class MenuBarController: NSObject {
           !text.isEmpty else { return }
     captureField?.stringValue = ""
     capturePanel?.orderOut(nil)
-    NotificationCenter.default.post(name: .composerToggleWindow, object: nil)
+    NotificationCenter.default.post(name: .composerShowWindow, object: nil)
     CaptureInbox.shared.enqueue(text)
   }
 }

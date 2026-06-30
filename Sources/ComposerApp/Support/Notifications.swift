@@ -9,6 +9,7 @@ enum ComposerDockKind: String {
 
 extension Notification.Name {
   static let composerToggleWindow = Notification.Name("composerToggleWindow")
+  static let composerShowWindow = Notification.Name("composerShowWindow")
   static let composerDismiss = Notification.Name("composerDismiss")
   static let composerCopy = Notification.Name("composerCopy")
   /// Fires on ⌘R / ⌘↩ — compile the whole board into one paste-ready draft.

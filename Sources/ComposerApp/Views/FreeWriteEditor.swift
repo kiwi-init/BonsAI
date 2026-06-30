@@ -449,17 +449,36 @@ extension FreeWriteEditor {
       }
       guard SmartPaste.looksLikeLibraryQuery(pasted) else { return false }
       let range = textView.selectedRange()
-      Task { await resolveContext7Paste(pasted, replacing: range, in: textView) }
+      guard let insertedRange = insertPlainSmartPaste(pasted, replacing: range, in: textView) else {
+        return false
+      }
+      Task { await resolveContext7Paste(pasted, insertedRange: insertedRange, in: textView) }
       return true
     }
 
-    private func resolveContext7Paste(_ query: String, replacing range: NSRange, in textView: ComposerTextView) async {
+    private func insertPlainSmartPaste(_ string: String, replacing range: NSRange, in textView: ComposerTextView) -> NSRange? {
+      guard let storage = textView.textStorage,
+            textView.shouldChangeText(in: range, replacementString: string) else { return nil }
+      let attributed = NSAttributedString(string: string, attributes: bodyAttributes())
+      storage.replaceCharacters(in: range, with: attributed)
+      textView.didChangeText()
+      let insertedRange = NSRange(location: range.location, length: (string as NSString).length)
+      textView.setSelectedRange(NSRange(location: insertedRange.upperBound, length: 0))
+      parent.text = textView.attributedString().composerPlainText
+      parent.onCountChange(textView.string.count)
+      updatePlaceholderVisibility()
+      publishSelection(textView)
+      return insertedRange
+    }
+
+    private func resolveContext7Paste(_ query: String, insertedRange: NSRange, in textView: ComposerTextView) async {
       if let token = await SmartPaste.context7Token(for: query) {
-        textView.insertTokenChip(token, replacing: range)
+        let current = textView.string as NSString
+        guard insertedRange.upperBound <= current.length,
+              current.substring(with: insertedRange) == query else { return }
+        textView.insertTokenChip(token, replacing: insertedRange)
         parent.text = textView.attributedString().composerPlainText
         parent.onCountChange(textView.string.count)
-      } else {
-        _ = replace(range: range, with: query)
       }
     }
 
