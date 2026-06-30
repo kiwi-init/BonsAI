@@ -4,7 +4,7 @@ import SwiftData
 
 /// The entire app surface: a pan/zoom board of text cards on a chromeless glass card, with a
 /// top tool toolbar and a left action rail floating in the gutters. Per-card editor chrome
-/// (mentions, connector search) is routed to the active card; board-level
+/// (mentions, connector search, the semantic linter) is routed to the active card; board-level
 /// actions (Compile, Copy) span every card.
 struct ComposerCanvas: View {
   @StateObject private var store = DumpStore.shared
@@ -92,7 +92,9 @@ struct ComposerCanvas: View {
           size: proxy.size,
           isWorking: isWorking,
           onRefine: { refineSelection($0, card: editing) },
-          onCopy: { copyBoard() }
+          onCopy: { copyBoard() },
+          onApplyFix: { editing.controller.applyLintFix(range: $0.range, expecting: $0.phrase, with: $1) },
+          onAskClaude: { askClaude(about: $0, card: editing) }
         )
         .id(editing.id)
       }
@@ -694,6 +696,7 @@ struct ComposerCanvas: View {
     guard let editing = board.editingInteraction else { return }
     if editing.mentions.isOpen { editing.mentions.isOpen = false; editing.mentions.items = [] }
     if editing.appSearch.isOpen { editing.appSearch.isOpen = false }
+    if editing.lint.activeFlagID != nil { editing.lint.activeFlagID = nil }
   }
 
   /// The sidebar gear toggles Settings the way ⌘J / the rail toggle Agent: a second click on the
@@ -990,6 +993,32 @@ struct ComposerCanvas: View {
         show(Toast(text: "Refined with \(engine.title)", symbol: "checkmark.circle.fill", tint: .green))
       } catch {
         show(Toast(text: UserFacingError.message(for: error, while: "Refining the selected text with \(engine.title)"), symbol: "exclamationmark.triangle.fill", tint: .orange))
+      }
+      isWorking = false
+    }
+  }
+
+  /// Escalate one flagged phrase on the active card to Claude.
+  private func askClaude(about flag: LintFlag, card: CardInteraction) {
+    guard !isWorking else { return }
+    guard EnginePreferences.isEnabled(.claude) else {
+      show(Toast(text: "Claude is disabled in Settings", symbol: "exclamationmark.triangle.fill", tint: .orange))
+      return
+    }
+    guard engineCapabilities.isAvailable(.claude) else {
+      show(Toast(text: unavailableEngineMessage(), symbol: "exclamationmark.triangle.fill", tint: .orange))
+      return
+    }
+    let whole = card.controller.plainText
+    isWorking = true
+    card.lint.activeFlagID = nil
+    Task {
+      do {
+        let result = try await service.refineSelection(whole: whole, selection: flag.phrase, engine: .claude)
+        card.controller.applyLintFix(range: flag.range, expecting: flag.phrase, with: result)
+        show(Toast(text: "Clarified with Claude", symbol: "checkmark.circle.fill", tint: .green))
+      } catch {
+        show(Toast(text: UserFacingError.message(for: error, while: "Clarifying the selected text with Claude"), symbol: "exclamationmark.triangle.fill", tint: .orange))
       }
       isWorking = false
     }
@@ -1437,28 +1466,36 @@ private struct PinchZoomCatcher: NSViewRepresentable {
 // MARK: - Active-card overlays
 
 /// The caret/selection-anchored chrome for whichever card holds focus: the selection action
-/// bar, the `@`-mention menu, and the connector search panel. Observes the active card's state
-/// objects directly so it re-renders when they change; rebuilt (via `.id`) when the active card
-/// changes.
+/// bar, the `@`-mention menu, the connector search panel, and the linter popover. Observes the
+/// active card's state objects directly so it re-renders when they change; rebuilt (via `.id`)
+/// when the active card changes.
 private struct ActiveCardOverlays: View {
   @ObservedObject var card: CardInteraction
   @ObservedObject var mentions: MentionState
   @ObservedObject var appSearch: AppSearchState
+  @ObservedObject var lint: LintState
   let size: CGSize
   let isWorking: Bool
   let onRefine: (HeadlessEngine) -> Void
   let onCopy: () -> Void
+  let onApplyFix: (LintFlag, String) -> Void
+  let onAskClaude: (LintFlag) -> Void
 
   init(card: CardInteraction, size: CGSize, isWorking: Bool,
        onRefine: @escaping (HeadlessEngine) -> Void,
-       onCopy: @escaping () -> Void) {
+       onCopy: @escaping () -> Void,
+       onApplyFix: @escaping (LintFlag, String) -> Void,
+       onAskClaude: @escaping (LintFlag) -> Void) {
     self.card = card
     self.mentions = card.mentions
     self.appSearch = card.appSearch
+    self.lint = card.lint
     self.size = size
     self.isWorking = isWorking
     self.onRefine = onRefine
     self.onCopy = onCopy
+    self.onApplyFix = onApplyFix
+    self.onAskClaude = onAskClaude
   }
 
   var body: some View {
@@ -1466,11 +1503,13 @@ private struct ActiveCardOverlays: View {
       selectionBar
       mentionMenu
       appSearchPanel
+      lintPopover
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .animation(Theme.Motion.accessory, value: card.selection)
     .animation(Theme.Motion.accessory, value: mentions.isOpen)
     .animation(Theme.Motion.accessory, value: appSearch.isOpen)
+    .animation(Theme.Motion.accessory, value: lint.activeFlagID)
   }
 
   @ViewBuilder
@@ -1510,6 +1549,24 @@ private struct ActiveCardOverlays: View {
     }
   }
 
+  @ViewBuilder
+  private var lintPopover: some View {
+    if card.selection.isEmpty, !mentions.isOpen, !appSearch.isOpen, let flag = lint.activeFlag, let rect = flag.rectInView {
+      let popup = CGSize(width: 300, height: lintPopoverHeight(flag))
+      let origin = popupOrigin(anchor: CGPoint(x: rect.minX, y: rect.maxY + 1), popup: popup)
+      LintPopover(
+        flag: flag,
+        onPick: { onApplyFix(flag, $0) },
+        onAskClaude: { onAskClaude(flag) },
+        onHover: { hovering in if hovering { lint.cancelHide?() } else { lint.requestHide?() } }
+      )
+      .fixedSize(horizontal: true, vertical: false)
+      .frame(width: popup.width)
+      .position(x: origin.x + popup.width / 2, y: origin.y + popup.height / 2)
+      .transition(.opacity)
+    }
+  }
+
   // MARK: Geometry
 
   private var mentionMenuHeight: CGFloat {
@@ -1525,6 +1582,12 @@ private struct ActiveCardOverlays: View {
       content = min(CGFloat(max(appSearch.results.count, 1)), Theme.Size.menuMaxVisibleRows) * 46 + 10
     }
     return 42 + 1 + content + 26
+  }
+
+  private func lintPopoverHeight(_ flag: LintFlag) -> CGFloat {
+    let suggestions = CGFloat(flag.suggestions.count) * 42
+    let dividers = flag.suggestions.isEmpty ? 1.0 : 2.0
+    return min(260, 62 + suggestions + 42 + dividers)
   }
 
   private func popupOrigin(anchor: CGPoint, popup: CGSize) -> CGPoint {

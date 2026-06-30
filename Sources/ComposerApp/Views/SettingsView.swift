@@ -192,7 +192,7 @@ private struct SettingsContent: View {
   // MARK: Runtime
 
   private var runtimePage: some View {
-    let states = HeadlessEngine.allCases.map { capabilities.status(for: $0) }
+    let states = HeadlessEngine.allCases.map { capabilities.status(for: $0) } + [capabilities.appleIntelligence]
     let ready = states.filter { $0.isAvailable }.count
 
     return VStack(alignment: .leading, spacing: 16) {
@@ -227,9 +227,24 @@ private struct SettingsContent: View {
           availability: capabilities.status(for: .codex),
           toggle: $codexEnabled
         ) { EngineLogo(engine: .codex).frame(width: 18, height: 18) }
+
+        engineRow(
+          name: "Apple Intelligence",
+          command: "semantic lint",
+          availability: capabilities.appleIntelligence,
+          toggle: nil
+        ) {
+          // The genuine Apple Intelligence mark — brand identity, the same rainbow the agent icon
+          // uses — not decorative color.
+          Image(systemName: "apple.intelligence")
+            .font(.system(size: 19, weight: .medium))
+            .foregroundStyle(AngularGradient(
+              gradient: Gradient(colors: [.orange, .red, .purple, .blue, .cyan, .orange]),
+              center: .center))
+        }
       }
 
-      Label("CLI prompts stay on your configured agent accounts.", systemImage: "lock.fill")
+      Label("CLI prompts stay on your configured agent accounts. Apple Intelligence runs the on-device lint and never sends a draft off your Mac.", systemImage: "lock.fill")
         .font(.caption)
         .foregroundStyle(Theme.Palette.count)
         .fixedSize(horizontal: false, vertical: true)

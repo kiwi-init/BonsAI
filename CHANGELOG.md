@@ -16,12 +16,6 @@ under the new version heading.
 - **Quick capture.** A menu-bar leaf opens a one-line capture field (↩ sends to the current board). macOS **Services → Send to BonsAI** and `bonsai://capture?text=…` use the same path. The loopback API adds `POST /capture`.
 - **Codex engine.** Refine and Compile can run through `codex exec` (read-only sandbox) when Codex CLI is installed — toggle in Settings ▸ Runtime.
 - **Canvas API docs + integrations.** [docs/canvas-api.md](docs/canvas-api.md) formalizes the `127.0.0.1:7337` API; [integrations/raycast](integrations/raycast/README.md) and [integrations/alfred](integrations/alfred/README.md) ship starter scripts.
-
-### Removed
-- **The semantic linter.** The invisible on-device ambiguity linter (built on Apple's
-  Foundation Models) and its Settings ▸ Runtime row have been removed, ahead of a larger
-  pivot. Drafts are no longer analyzed for ambiguity; the agent and `claude -p` engine paths
-  are unchanged, and Snap to board still reads screenshots on-device.
 - **Agent tool permission prompts.** Agent-run MCP tool calls now ask before running, remember
   allowed tools, and include a Settings control to reset remembered permissions.
 

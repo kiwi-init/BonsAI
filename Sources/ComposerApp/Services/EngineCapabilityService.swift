@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 /// The live availability state behind Composer's local intelligence features. A user preference
 /// answers "may I use this?"; this answers the separate, practical question: "can I use it now?".
@@ -78,6 +81,7 @@ final class EngineCapabilityStore: ObservableObject {
   static let shared = EngineCapabilityStore()
 
   @Published private(set) var cli: [HeadlessEngine: RuntimeAvailability] = [:]
+  @Published private(set) var appleIntelligence: RuntimeAvailability = .checking
   private var refreshTask: Task<Void, Never>?
   private static let snapshotKey = "composer.engineCapabilities.v1"
 
@@ -100,6 +104,7 @@ final class EngineCapabilityStore: ObservableObject {
   func refresh() {
     refreshTask?.cancel()
     cli = Dictionary(uniqueKeysWithValues: HeadlessEngine.allCases.map { ($0, .checking) })
+    appleIntelligence = appleIntelligenceAvailability()
     refreshTask = Task { [weak self] in
       let detected = await Task.detached(priority: .utility) {
         var statuses: [HeadlessEngine: RuntimeAvailability] = [:]
@@ -118,6 +123,7 @@ final class EngineCapabilityStore: ObservableObject {
 
   private struct Snapshot: Codable {
     var cli: [String: RuntimeAvailability]
+    var appleIntelligence: RuntimeAvailability
   }
 
   /// Restore the last detected state. Returns false (→ caller runs a first detection) when nothing
@@ -136,6 +142,7 @@ final class EngineCapabilityStore: ObservableObject {
     }
     guard !restored.isEmpty else { return false }
     cli = restored
+    appleIntelligence = snapshot.appleIntelligence
     return true
   }
 
@@ -144,12 +151,34 @@ final class EngineCapabilityStore: ObservableObject {
       if case .checking = pair.value { return }   // never persist the transient state
       result[pair.key.rawValue] = pair.value
     }
-    let snapshot = Snapshot(cli: resolved)
+    let snapshot = Snapshot(cli: resolved, appleIntelligence: appleIntelligence)
     do {
       let data = try JSONEncoder().encode(snapshot)
       UserDefaults.standard.set(data, forKey: Self.snapshotKey)
     } catch {
       UserFacingError.report(error, while: "Saving Composer’s runtime status")
     }
+  }
+
+  private func appleIntelligenceAvailability() -> RuntimeAvailability {
+    guard #available(macOS 26.0, *) else {
+      return .unavailable("Requires macOS 26")
+    }
+    #if canImport(FoundationModels)
+    switch SystemLanguageModel.default.availability {
+    case .available:
+      return .available(path: "On-device", version: nil)
+    case .unavailable(.deviceNotEligible):
+      return .unavailable("This Mac isn’t eligible")
+    case .unavailable(.appleIntelligenceNotEnabled):
+      return .unavailable("Turn on Apple Intelligence")
+    case .unavailable(.modelNotReady):
+      return .unavailable("Model is still preparing")
+    @unknown default:
+      return .unavailable("macOS reported an unrecognized Apple Intelligence availability state")
+    }
+    #else
+    return .unavailable("Not included in this build")
+    #endif
   }
 }
