@@ -15,8 +15,14 @@ final class CanvasBridge {
 
   func snapshot() -> CanvasGraph {
     guard let board else { return CanvasGraph(nodes: [], edges: [], readingOrder: []) }
-    let nodes = board.cards.map { card in
-      CanvasGraph.Node(
+    let nodes = board.cards.map { card -> CanvasGraph.Node in
+      var widgetType: String?
+      var widgetSummary: String?
+      if let widget = card.widget, let def = WidgetRegistry.widget(id: widget.typeID) {
+        widgetType = widget.typeID
+        widgetSummary = def.agentSummary(widget.config, widget.snapshot)
+      }
+      return CanvasGraph.Node(
         id: card.id.uuidString,
         kind: card.elementKind.rawValue,
         text: board.plainText(for: card),
@@ -24,7 +30,9 @@ final class CanvasBridge {
         group: card.groupID?.uuidString,
         locked: card.locked,
         archived: card.isArchived,
-        whoWrote: card.author)
+        whoWrote: card.author,
+        widgetType: widgetType,
+        widgetSummary: widgetSummary)
     }
     let edges = board.cards.compactMap { card -> CanvasGraph.Edge? in
       guard card.elementKind == .arrow || card.elementKind == .line,
@@ -66,8 +74,21 @@ final class CanvasBridge {
       }
       return ok(["id": board.insertTextAutoPlaced(text).uuidString])
 
+    case "add_widget":
+      // Place a live widget card. `config` is the widget's own JSON shape (opaque here).
+      guard let typeID = string(op["typeID"]), let def = WidgetRegistry.widget(id: typeID) else {
+        return fail("unknown widget \"typeID\"")
+      }
+      let configObject = op["config"] as? [String: Any] ?? [:]
+      guard let configData = try? JSONSerialization.data(withJSONObject: configObject) else {
+        return fail("bad \"config\"")
+      }
+      let id = board.addWidget(typeID: typeID, config: configData, configVersion: def.configVersion)
+      return ok(["id": id.uuidString])
+
     case "add_shape":
-      guard let kind = string(op["kind"]).flatMap(CanvasElementKind.init(rawValue:)) else {
+      guard let kind = string(op["kind"]).flatMap(CanvasElementKind.init(rawValue:)),
+            kind != .widget else {   // widgets go through add_widget, never add_shape
         return fail("bad \"kind\"")
       }
       let w = double(op["w"]) ?? 180, h = double(op["h"]) ?? 120

@@ -22,6 +22,12 @@ struct CanvasGraph: Codable {
     /// Who last authored this node: 1 = human, 2 = agent, 0 = unknown. Lets the agent tell its own
     /// work from what the human wrote or changed.
     var whoWrote: Int
+    /// For `.widget` nodes: the registry type id and a compact live-state summary (from the
+    /// widget's `agentSummary`), so the agent can read a widget's state without decoding its opaque
+    /// config/snapshot blobs. Nil for every other kind. This is the one schema addition the widget
+    /// envelope threads through — see docs/widgets.md "The one-time canvas tax".
+    var widgetType: String?
+    var widgetSummary: String?
   }
 
   /// A directional relationship between two nodes, realized by a bound arrow/line node.

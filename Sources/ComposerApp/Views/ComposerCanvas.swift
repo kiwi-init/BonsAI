@@ -120,6 +120,7 @@ struct ComposerCanvas: View {
       for text in CaptureInbox.shared.drainPending() {
         ingestQuickCapture(text)
       }
+      board.refreshAllWidgets()   // v1: refresh live widgets on board open (no background polling)
     }
     .onChange(of: inner) { _, value in lastViewportSize = value }
   }
@@ -464,7 +465,13 @@ struct ComposerCanvas: View {
       onZoomOut: { zoom(0.8, anchoredAt: zoomAnchor) },
       onZoomIn: { zoom(1.25, anchoredAt: zoomAnchor) },
       onZoomReset: { withAnimation(Theme.Motion.accessory) { scale = 1 } },
-      onFit: { withAnimation(Theme.Motion.accessory) { fitBoard(in: innerSize) } }
+      onFit: { withAnimation(Theme.Motion.accessory) { fitBoard(in: innerSize) } },
+      onAddWidget: { typeID in
+        guard let def = WidgetRegistry.widget(id: typeID) else { return }
+        let config = (try? def.defaultConfig()) ?? Data()
+        let id = board.addWidget(typeID: typeID, config: config, configVersion: def.configVersion)
+        board.beginEditing(id)   // open the config form immediately so the user fills in the repo
+      }
     )
     // The board's host window narrows for Agent/Settings, but the toolbar belongs to the complete
     // composed workspace. `workspaceCenterX` is supplied by the AppKit controller in board-window

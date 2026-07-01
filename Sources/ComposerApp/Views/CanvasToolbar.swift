@@ -56,6 +56,10 @@ struct CanvasToolbar: View {
   var onZoomIn: () -> Void
   var onZoomReset: () -> Void
   var onFit: () -> Void
+  /// Place a widget of the given registry id on the board.
+  var onAddWidget: (String) -> Void = { _ in }
+
+  @State private var showingWidgetPicker = false
 
   var body: some View {
     HStack(spacing: 5) {
@@ -90,6 +94,14 @@ struct CanvasToolbar: View {
       .help("Reset to 100%")
       ToolButton(symbol: "plus.magnifyingglass", help: "Zoom in", action: onZoomIn)
       ToolButton(symbol: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit board", action: onFit)
+
+      divider
+
+      ToolButton(symbol: "plus.rectangle.on.rectangle",
+                 help: "Add widget  ·  live cards for GitHub CI and more") { showingWidgetPicker = true }
+        .popover(isPresented: $showingWidgetPicker, arrowEdge: .bottom) {
+          WidgetPickerList { id in showingWidgetPicker = false; onAddWidget(id) }
+        }
 
       divider
 

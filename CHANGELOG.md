@@ -12,6 +12,13 @@ under the new version heading.
 ## [Unreleased]
 
 ### Added
+- **Board widgets (with a GitHub Actions widget).** A new toolbar button drops live, self-refreshing
+  cards onto the board. The first widget shows GitHub Actions run status for a repo/branch — the
+  latest run of each workflow, with the card border tinted to the overall state (green / running /
+  red). Widgets refresh on board-open and via a per-card refresh button; the `gh` CLI provides auth.
+  Widgets are a typed registry — adding one is a single self-contained file plus one line — and their
+  live state is projected into the agent-readable board graph. See
+  [docs/widgets.md](docs/widgets.md).
 - **Model pickers for the agent chat and board description.** Choose which Claude model each runs on
   (Opus / Sonnet / Haiku). The chat picker lives in the Agent panel header and mirrors a matching
   control in **Settings ▸ Runtime ▸ Models**; describing the board has its own picker in the same

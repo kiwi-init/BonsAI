@@ -70,6 +70,26 @@ needs a secret (`ConnectorAuth` → rendered in Settings, stored via
 The `@token` serialization is the source of truth for chips, so new connectors
 get round-trip tests alongside the others in `ConnectorTokenTests`.
 
+The full machinery — the registry, the two-registry problem we're collapsing into
+one source of truth, and the modular capability split that lets widgets reuse a
+connector's auth — is written up in [docs/connectors.md](docs/connectors.md). Read
+it before changing the connector model.
+
+## Widgets
+
+A **widget** is a small, typed, self-refreshing card — a live CI run, a deploy
+state, an open-PR count — that updates itself on the board so you never tab away to
+check it. Widgets are designed to be the easiest possible contribution: one
+self-contained file, one line in the registry, and the canvas never learns your
+widget exists.
+
+A widget is held to the same bar as a connector — it must inject *live* context
+worth pinning, not duplicate something a glance elsewhere already gives you. The
+typed `BoardWidget` contract, the refresh engine, how a widget borrows a
+connector's auth instead of rolling its own, and the step-by-step
+[Adding a widget](docs/widgets.md#adding-a-widget) checklist are all in
+[docs/widgets.md](docs/widgets.md). A new widget is a well-scoped, welcome PR.
+
 ## Semantic linter layer
 
 This is a newer, more experimental concept, and we'll be honest: we're **not

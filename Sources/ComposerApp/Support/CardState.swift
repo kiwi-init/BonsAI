@@ -10,6 +10,7 @@ enum CanvasElementKind: String, Codable, Equatable, CaseIterable {
   case arrow
   case freehand
   case image
+  case widget
 }
 
 struct CanvasPoint: Codable, Equatable {
@@ -52,6 +53,10 @@ struct CardState: Codable, Identifiable, Equatable {
   /// Who last authored this card: 1 = human, 2 = agent. Nil on legacy cards (treated as unknown).
   /// Lets an agent reading the board tell its own work from what the human wrote or changed.
   var whoWrote: Int?
+  /// For `.widget` cards: the opaque widget payload (typeID + config + cached snapshot). Nil for
+  /// every other kind and on legacy boards. The canvas persists it but never parses it — only the
+  /// owning `BoardWidget` decodes `config`/`snapshot`. See docs/widgets.md.
+  var widget: WidgetInstance?
 
   init(id: UUID = UUID(),
        kind: CanvasElementKind = .text,
@@ -69,7 +74,8 @@ struct CardState: Codable, Identifiable, Equatable {
        imagePath: String? = nil,
        imageUnderstanding: String? = nil,
        archived: Bool = false,
-       whoWrote: Int? = nil) {
+       whoWrote: Int? = nil,
+       widget: WidgetInstance? = nil) {
     self.id = id
     self.kind = kind == .text ? nil : kind
     self.text = text
@@ -87,6 +93,7 @@ struct CardState: Codable, Identifiable, Equatable {
     self.imageUnderstanding = imageUnderstanding
     self.archived = archived ? true : nil
     self.whoWrote = whoWrote
+    self.widget = widget
   }
 
   var elementKind: CanvasElementKind { kind ?? .text }
@@ -113,6 +120,8 @@ struct CardState: Codable, Identifiable, Equatable {
   static let lineMinSize = CGSize(width: 24, height: 24)
   static let shapeSize = CGSize(width: 220, height: 140)
   static let lineSize = CGSize(width: 240, height: 96)
+  static let widgetSize = CGSize(width: 300, height: 168)
+  static let widgetMinSize = CGSize(width: 240, height: 92)
 
   var minimumSize: CGSize {
     switch elementKind {
@@ -122,6 +131,8 @@ struct CardState: Codable, Identifiable, Equatable {
       CardState.shapeMinSize
     case .line, .arrow, .freehand:
       CardState.lineMinSize
+    case .widget:
+      CardState.widgetMinSize
     }
   }
 

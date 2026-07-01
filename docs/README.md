@@ -9,6 +9,8 @@ not just what the code does.
 | [agent-engines.md](agent-engines.md) | The AI engines — `claude -p`, `codex exec`, and on-device Apple Intelligence — how each is invoked (one-shot vs. streaming), how one gets selected, and how to add another. |
 | [canvas-agent.md](canvas-agent.md) | The board as an agent-readable graph: `CanvasGraph` nodes/edges, the loopback server → MCP → bridge plumbing, the tool catalog, and how the agent reads and writes board state. |
 | [canvas-api.md](canvas-api.md) | The loopback HTTP API (`127.0.0.1:7337`): health, read, capture, mutate, MCP — for external agents, Raycast, and Alfred. |
+| [connectors.md](connectors.md) | The connector registry: how `@`-mention connectors are built, the two-registry problem, and the refactor to one source of truth that mentions and widgets both draw from. |
+| [widgets.md](widgets.md) | The board widget registry: the typed `BoardWidget` contract, the one opaque card envelope, the refresh engine, and how to add a widget in one file. |
 | [semanticlinter.md](semanticlinter.md) | The invisible on-device semantic linter: why it runs on Apple's Foundation Models, its precision bias, and the kinds of ambiguity it flags. |
 
 For the project overview and how to build, see the [README](../README.md); for

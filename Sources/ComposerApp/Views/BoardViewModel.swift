@@ -341,6 +341,8 @@ final class BoardViewModel: ObservableObject {
       case .image: CardState.shapeSize
       case .rectangle, .ellipse, .diamond: CardState.shapeSize
       case .text: CardState.defaultSize
+      // Widgets aren't placed by the draw tools — see addWidget(_:config:). Covered for exhaustiveness.
+      case .widget: CardState.widgetSize
       }
     }()
     let initialPoints: [CanvasPoint]? = {
@@ -349,7 +351,7 @@ final class BoardViewModel: ObservableObject {
         return CardState.defaultLinePoints()
       case .freehand:
         return CardState.defaultFreehandPoints()
-      case .text, .rectangle, .ellipse, .diamond, .image:
+      case .text, .rectangle, .ellipse, .diamond, .image, .widget:
         return nil
       }
     }()
@@ -379,7 +381,9 @@ final class BoardViewModel: ObservableObject {
   /// keep the two points as their endpoints; boxes use the bounding frame. Clamped to a minimum.
   @discardableResult
   func addDrawnElement(_ kind: CanvasElementKind, from start: CGPoint, to end: CGPoint) -> UUID? {
-    guard kind != .text, kind != .freehand, kind != .image else { return nil }
+    // Widgets are placed via addWidget(_:config:), never drawn as a shape — this also blocks the
+    // `add_shape kind:"widget"` API path from smuggling one in.
+    guard kind != .text, kind != .freehand, kind != .image, kind != .widget else { return nil }
     registerUndo()
     let isLine = (kind == .line || kind == .arrow)
     let minSize = isLine ? CardState.lineMinSize : CardState.shapeMinSize
@@ -537,6 +541,83 @@ final class BoardViewModel: ObservableObject {
     primarySelectedCardID = card.id
     scheduleSave()
     return card.id
+  }
+
+  // MARK: Widgets
+
+  /// Place a new widget card (auto-placed unless `point` given) and kick off its first fetch.
+  @discardableResult
+  func addWidget(typeID: String, config: Data, configVersion: Int, at point: CGPoint? = nil) -> UUID {
+    registerUndo()
+    let size = CardState.widgetSize
+    let origin = point ?? autoPlacePoint(for: size)
+    let instance = WidgetInstance(typeID: typeID, configVersion: configVersion, config: config)
+    let card = CardState(kind: .widget, text: "",
+                         x: Double(origin.x), y: Double(origin.y),
+                         w: Double(size.width), h: Double(size.height), z: nextZ,
+                         whoWrote: nextAuthor, widget: instance)
+    nextZ += 1
+    cards.append(card)
+    interactions[card.id] = CardInteraction(card)
+    selectedCardIDs = [card.id]
+    primarySelectedCardID = card.id
+    editingCardID = nil
+    scheduleSave()
+    // Only fetch immediately if the seed config is already valid (e.g. duplicated card). A freshly
+    // picked widget starts with an empty/default config, so it waits for the user's first edit
+    // rather than flashing a "bad config" error.
+    if let def = WidgetRegistry.widget(id: typeID), def.validate(config).isEmpty {
+      Task { await refreshWidget(card.id) }
+    }
+    return card.id
+  }
+
+  /// Replace a widget's config (a user edit — undoable). Triggers a refresh if it actually changed.
+  func setWidgetConfig(_ id: UUID, _ config: Data) {
+    guard let i = cards.firstIndex(where: { $0.id == id }), var widget = cards[i].widget else { return }
+    guard widget.config != config else { return }
+    registerUndo()
+    widget.config = config
+    cards[i].widget = widget
+    cards[i].whoWrote = nextAuthor
+    scheduleSave()
+    Task { await refreshWidget(id) }
+  }
+
+  /// Write a refresh result onto a widget card. Deliberately does NOT register undo — background
+  /// refresh must not litter the undo stack. On failure the last-known snapshot is kept.
+  func setWidgetResult(_ id: UUID, snapshot: Data?, error: WidgetError?, at date: Date) {
+    guard let i = cards.firstIndex(where: { $0.id == id }), var widget = cards[i].widget else { return }
+    if let snapshot { widget.snapshot = snapshot }
+    widget.fetchedAt = date
+    widget.failureCount = error == nil ? 0 : widget.failureCount + 1
+    widget.lastError = error
+    cards[i].widget = widget
+    scheduleSave()
+  }
+
+  /// Fetch one widget's live data off the main actor and write the result back on it.
+  func refreshWidget(_ id: UUID) async {
+    guard let card = cards.first(where: { $0.id == id }), let widget = card.widget,
+          let def = WidgetRegistry.widget(id: widget.typeID) else { return }
+    let config = widget.config
+    let run = def.fetchParse
+    let transport = LiveWidgetTransport()
+    do {
+      let snapshot = try await Task.detached(priority: .utility) { try await run(config, transport) }.value
+      setWidgetResult(id, snapshot: snapshot, error: nil, at: Date())
+    } catch let error as WidgetError {
+      setWidgetResult(id, snapshot: nil, error: error, at: Date())
+    } catch {
+      setWidgetResult(id, snapshot: nil, error: .network, at: Date())
+    }
+  }
+
+  /// Refresh every widget on the board (called on board-open; v1 has no background polling).
+  func refreshAllWidgets() {
+    for card in cards where card.elementKind == .widget {
+      Task { await refreshWidget(card.id) }
+    }
   }
 
   /// Mark a card superseded (faded) or active again.
@@ -699,7 +780,7 @@ final class BoardViewModel: ObservableObject {
 
   private static func isLayoutNode(_ card: CardState) -> Bool {
     switch card.elementKind {
-    case .text, .rectangle, .ellipse, .diamond, .image: return true
+    case .text, .rectangle, .ellipse, .diamond, .image, .widget: return true
     case .line, .arrow, .freehand: return false
     }
   }

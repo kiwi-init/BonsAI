@@ -36,6 +36,7 @@ struct BoardCardView: View {
     case .text: 12
     case .image: 10
     case .rectangle: 8
+    case .widget: 12
     default: 6
     }
   }
@@ -64,6 +65,7 @@ struct BoardCardView: View {
       .background(surface)
       .overlay(selectionChrome)
       .overlay(deleteButton, alignment: .topTrailing)
+      .overlay(widgetRefreshButton, alignment: .bottomTrailing)
       .overlay(lockBadge, alignment: .topLeading)
       .offset(x: liveFrame.minX * zoom, y: liveFrame.minY * zoom)
       .onHover { hovering = $0 }
@@ -118,6 +120,11 @@ struct BoardCardView: View {
         // is layout-zoomed and stays crisp. Anchored top-left to line up with the static render.
         .frame(width: liveFrame.width, height: liveFrame.height, alignment: .topLeading)
         .scaleEffect(zoom, anchor: .topLeading)
+      } else if isEditing, card.elementKind == .widget, let instance = card.widget {
+        // Editing a widget REPLACES the card content with its config form (like the text editor
+        // does), rather than floating the form over the still-rendered card and its status border.
+        WidgetConfigEditor(cardID: card.id, instance: instance, board: board)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
       } else {
         // Non-editing cards render from the serialized plain text (tokens like "@github"), so
         // the chip renderer can rebuild the styled chips — `interaction.text` is the visible
@@ -233,7 +240,10 @@ struct BoardCardView: View {
     // a text card it's chromeless too; the ring returns only once it's a placed object you
     // select to move or resize. Shapes keep their ring while editing.
     if (isSelected || isEditing) && !isEmptyText {
-      let showRing = !isTextElement || (isSelected && !isEditing)
+      // A widget being edited shows only its config form (which replaces the card content), so the
+      // card-sized ring around it is noise — and the form can exceed the card bounds. Drop it.
+      let editingWidget = isEditing && card.elementKind == .widget
+      let showRing = (!isTextElement || (isSelected && !isEditing)) && !editingWidget
       // Handles only grab in the select tool — in a drawing tool a corner drag should draw, not resize.
       let showHandles = isSelected && !isEditing && !card.locked && selectable
       GeometryReader { geo in
@@ -324,6 +334,27 @@ struct BoardCardView: View {
     }
   }
 
+  /// Manual refresh for a selected widget card — an interactive chrome overlay (like the delete ✕),
+  /// so it works despite the widget content being hit-disabled. v1's manual-refresh affordance.
+  @ViewBuilder
+  private var widgetRefreshButton: some View {
+    if card.elementKind == .widget, isSelected, !isEditing, selectable {
+      Button(action: { Task { await board.refreshWidget(card.id) } }) {
+        Image(systemName: "arrow.clockwise")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(Color.white.opacity(0.9))
+          .frame(width: 20, height: 20)
+          .background(Circle().fill(Color.black.opacity(0.55)))
+          .overlay(Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5))
+          .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+          .contentShape(Circle())
+      }
+      .buttonStyle(.plain)
+      .help(card.widget?.fetchedAt.map { "Updated \(widgetRelativeLabel($0)) ago · refresh now" } ?? "Refresh now")
+      .offset(x: -(selectionGap + 4), y: selectionGap + 4)
+    }
+  }
+
   @ViewBuilder
   private var lockBadge: some View {
     if card.locked {
@@ -402,6 +433,12 @@ private struct CanvasElementContent: View {
                   .help("Read on-device — this screenshot adds text to the compiled prompt")
               }
             }
+        case .widget:
+          if let instance = card.widget {
+            WidgetCardHost(instance: instance, zoom: zoom)
+          } else {
+            Color.clear
+          }
         }
       }
 
