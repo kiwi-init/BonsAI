@@ -148,7 +148,11 @@ enum AgentSkillsInstaller {
     }
 
     if let beginRange = existing.range(of: beginMarker),
-       let endRange = existing.range(of: endMarker) {
+       let endRange = existing.range(of: endMarker),
+       // Guard against a malformed file where the end marker precedes the begin marker — a reversed
+       // range would trap `replaceSubrange`. If the markers are out of order, fall through and append
+       // a fresh section rather than crash on the user's own file contents.
+       beginRange.lowerBound < endRange.lowerBound {
       existing.replaceSubrange(beginRange.lowerBound..<endRange.upperBound, with: section)
     } else {
       if !existing.isEmpty {

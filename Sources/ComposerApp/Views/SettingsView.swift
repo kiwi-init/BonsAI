@@ -296,7 +296,21 @@ private struct SettingsContent: View {
   /// place to set the model the board-description copy runs on. Refine/Compile aren't listed — they
   /// stay on the CLI default deliberately.
   private var modelsCard: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    // These pickers set a `claude --model` alias, so they only bite when Claude actually runs the
+    // surface. Chat is always Claude (the dock agent is hardwired to it); Describe runs on whichever
+    // engine `preferredEngine()` picks — Claude first, else Codex — and Codex ignores the alias. Gate
+    // the Describe picker on Claude being the engine that will run it so it never silently no-ops.
+    let claudeReady = claudeEnabled && capabilities.isAvailable(.claude)
+    let codexReady = codexEnabled && capabilities.isAvailable(.codex)
+    let describeEngine: HeadlessEngine? = claudeReady ? .claude : (codexReady ? .codex : nil)
+    let describeNote: String? = {
+      switch describeEngine {
+      case .claude: return nil
+      case .codex: return "Describe currently runs on Codex, which ignores this Claude model. Enable Claude to use it."
+      case nil: return "No engine is available to run Describe. Enable Claude or Codex in Runtime above."
+      }
+    }()
+    return VStack(alignment: .leading, spacing: 8) {
       Text("MODELS").sectionLabel()
       VStack(spacing: 0) {
         modelRow(
@@ -307,20 +321,30 @@ private struct SettingsContent: View {
         modelRow(
           title: "Describe board",
           subtitle: "The toolbar copy that summarizes the whole board into a paste-ready brief.",
-          selection: $describeModel)
+          selection: $describeModel,
+          active: describeEngine == .claude,
+          inactiveNote: describeNote)
       }
       .padding(.horizontal, 13)
       .settingsCard()
     }
   }
 
-  private func modelRow(title: String, subtitle: String, selection: Binding<ClaudeModel>) -> some View {
+  private func modelRow(
+    title: String, subtitle: String, selection: Binding<ClaudeModel>,
+    active: Bool = true, inactiveNote: String? = nil
+  ) -> some View {
     HStack(spacing: 11) {
       VStack(alignment: .leading, spacing: 2) {
         Text(title).font(.callout.weight(.medium)).foregroundStyle(Theme.Palette.body)
         Text(subtitle)
           .font(.caption).foregroundStyle(Theme.Palette.menuDesc)
           .fixedSize(horizontal: false, vertical: true)
+        if !active, let inactiveNote {
+          Text(inactiveNote)
+            .font(.caption).foregroundStyle(Color.orange)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
       Spacer(minLength: 8)
       Picker("", selection: selection) {
@@ -332,6 +356,8 @@ private struct SettingsContent: View {
       .pickerStyle(.menu)
       .fixedSize()
       .tint(Theme.Palette.body)
+      .disabled(!active)
+      .opacity(active ? 1 : 0.5)
     }
     .padding(.vertical, 11)
   }

@@ -23,7 +23,8 @@ under the new version heading.
   (Opus / Sonnet / Haiku). The chat picker lives in the Agent panel header and mirrors a matching
   control in **Settings ▸ Runtime ▸ Models**; describing the board has its own picker in the same
   place. Chat defaults to **Opus**, describe defaults to **Sonnet**. The choice is passed to
-  `claude --model`; Refine and Compile stay on the CLI default.
+  `claude --model`; Refine and Compile stay on the CLI default. The Describe picker disables itself
+  (with a note) when Codex — not Claude — is the active engine, since Codex ignores the Claude model.
 - **Describe board now sees your images.** When describing the board, the agent opens each image
   card by its file path and reads the picture, so the description reflects what the image actually
   shows instead of noting "an image".

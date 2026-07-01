@@ -45,6 +45,18 @@ final class AgentSkillsInstallerTests: XCTestCase {
     XCTAssertEqual(contents.components(separatedBy: "BEGIN BONSAI BOARD SKILL").count - 1, 1)
   }
 
+  func testMergeDoesNotTrapWhenMarkersAreReversedInTheFile() throws {
+    // A hand-mangled file with the end marker physically before the begin marker would make an
+    // in-order replace range reversed and trap. The merge must degrade to appending a fresh section.
+    let begin = "<!-- BEGIN BONSAI BOARD SKILL (auto-managed by BonsAI; edits outside the markers are preserved) -->"
+    let end = "<!-- END BONSAI BOARD SKILL -->"
+    try "\(end)\nstray\n\(begin)\n".write(to: tmpFile, atomically: true, encoding: .utf8)
+
+    XCTAssertNoThrow(try AgentSkillsInstaller.mergeMarkedSection("recovered body", into: tmpFile))
+    let contents = try String(contentsOf: tmpFile, encoding: .utf8)
+    XCTAssertTrue(contents.contains("recovered body"))
+  }
+
   /// `Bundle.appResources` only resolves the staged `.app` layout (by design — see its doc
   /// comment), not the xctest runner's working directory, so this checks the source files that
   /// `Package.swift` declares as `.process("Resources")` directly rather than through the bundle.
