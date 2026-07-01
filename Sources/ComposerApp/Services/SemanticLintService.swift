@@ -278,18 +278,19 @@ private struct ConnectorLintContext {
   let hasBrowser: Bool
   let hasLinear: Bool
   let hasNotion: Bool
+  let hasNotes: Bool
   let hasSentry: Bool
   let hasFigma: Bool
   let hasXcode: Bool
 
   private var resolvedConnectorCount: Int {
-    [hasContext7, hasGitHub, hasFinder, hasBrowser, hasLinear, hasNotion, hasSentry, hasFigma, hasXcode].filter { $0 }.count
+    [hasContext7, hasGitHub, hasFinder, hasBrowser, hasLinear, hasNotion, hasNotes, hasSentry, hasFigma, hasXcode].filter { $0 }.count
   }
 
   init(plainText: String) {
     let tokens = AppToken.scan(plainText)
     var lines: [String] = []
-    var context7 = false, github = false, finder = false, browser = false, linear = false, notion = false, sentry = false, figma = false, xcode = false
+    var context7 = false, github = false, finder = false, browser = false, linear = false, notion = false, notes = false, sentry = false, figma = false, xcode = false
 
     for entry in tokens {
       switch entry.selection {
@@ -311,6 +312,9 @@ private struct ConnectorLintContext {
       case let .notion(reference):
         notion = true
         lines.append("- Notion page selected: \(reference.title.isEmpty ? reference.id : reference.title).")
+      case let .notes(reference):
+        notes = true
+        lines.append("- Apple Notes note selected: \(reference.title.isEmpty ? reference.id : reference.title).")
       case let .sentry(reference):
         sentry = true
         lines.append("- Sentry issue selected: \(reference.shortID) (org \(reference.org)).")
@@ -333,6 +337,7 @@ private struct ConnectorLintContext {
     self.hasBrowser = browser
     self.hasLinear = linear
     self.hasNotion = notion
+    self.hasNotes = notes
     self.hasSentry = sentry
     self.hasFigma = figma
     self.hasXcode = xcode
@@ -350,6 +355,7 @@ private struct ConnectorLintContext {
       if hasBrowser, containsAny(lower, ["browser", "tab", "page", "url", "site", "website", "link", "host", "title"]) { return false }
       if hasLinear, containsAny(lower, ["linear", "issue", "issues", "ticket", "tickets", "acceptance criteria", "spec", "story", "task"]) { return false }
       if hasNotion, containsAny(lower, ["notion", "page", "doc", "docs", "spec", "rfc", "document", "wiki", "notes"]) { return false }
+      if hasNotes, containsAny(lower, ["note", "notes", "apple notes", "memo", "jot", "reminder"]) { return false }
       if hasSentry, containsAny(lower, ["sentry", "error", "errors", "exception", "stack trace", "stacktrace", "crash", "bug"]) { return false }
       if hasFigma, containsAny(lower, ["figma", "frame", "design", "mockup", "screen", "ui", "component", "layout", "wireframe"]) { return false }
       if hasXcode, containsAny(lower, ["xcode", "build", "compile", "compiler", "test", "tests", "failure", "failing"]) { return false }

@@ -136,6 +136,9 @@ final class MentionStyleCache {
       } else if item.id == "@finder", let image = localAppIcon(bundleID: "com.apple.finder", fallbackPath: "/System/Library/CoreServices/Finder.app") {
         images[item.id] = image
         colors[item.id] = dominantColor(of: image)
+      } else if item.id == "@notes", let image = localAppIcon(bundleID: "com.apple.Notes", fallbackPath: "/System/Applications/Notes.app") {
+        images[item.id] = image
+        colors[item.id] = dominantColor(of: image)
       } else if item.id == "@browser", let image = localAppIcon(bundleID: "com.apple.Safari", fallbackPath: "/Applications/Safari.app") {
         images[item.id] = image
         colors[item.id] = dominantColor(of: image)
