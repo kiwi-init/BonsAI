@@ -51,6 +51,13 @@ struct NotionReference: Codable, Equatable, Hashable {
   let title: String
 }
 
+/// An Apple Notes note captured by the `@notes` connector. `id` is the note's AppleScript identifier
+/// (an `x-coredata://…` URL); `title` is the chip label, with the body re-read at copy time.
+struct NotesReference: Codable, Equatable, Hashable {
+  let id: String
+  let title: String
+}
+
 /// A Sentry issue captured by the `@sentry` connector. Issues are org-scoped, so `org` (the slug)
 /// travels with the issue `id`; `shortID` (e.g. `FRONTEND-1AB`) is the chip label.
 struct SentryReference: Codable, Equatable, Hashable {
@@ -83,12 +90,16 @@ enum AppSelection: Equatable, Hashable {
   case github(kind: GitHubItemKind, url: String)
   /// A local file or folder found through Finder/Spotlight.
   case finder(FinderReference)
+  /// A file or folder from iCloud Drive — same shape as a Finder reference, rendered at copy time.
+  case icloud(FinderReference)
   /// An open browser tab, populated from Safari and Chromium browsers.
   case browser(BrowserTabReference)
   /// A Linear issue (description, status, comments, links rendered at copy time).
   case linear(LinearReference)
   /// A Notion page (title + flattened block text rendered at copy time).
   case notion(NotionReference)
+  /// An Apple Notes note (title + plain-text body rendered at copy time).
+  case notes(NotesReference)
   /// A Sentry issue (summary + latest-event stack trace rendered at copy time).
   case sentry(SentryReference)
   /// A Figma frame/file (dimensions, text layers, screenshot URL rendered at copy time).
@@ -110,9 +121,11 @@ enum AppSelection: Equatable, Hashable {
 /// - `@github:https://github.com/owner/repo/issues/1`
 /// - `@github:https://github.com/owner/repo/pull/2`
 /// - `@finder:/Users/me/Project/README.md`
+/// - `@icloud:/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Doc.pdf`
 /// - `@browser:<base64url-json>`                    (Safari/Chrome tab metadata)
 /// - `@linear:<uuid>?k=ENG-123`                      (issue uuid + identifier)
 /// - `@notion:<uuid>?t=Page%20Title`                 (page uuid + title)
+/// - `@notes:<coredata-id>?t=Note%20Title`           (Apple Notes id + title)
 /// - `@sentry:my-org/12345?s=FRONTEND-1AB`           (org slug / issue id + short id)
 /// - `@figma:<base64url-json>`                        (file key + node id + name)
 /// - `@xcode:/path/to/Result.xcresult`               (result bundle path)
@@ -132,6 +145,8 @@ enum AppToken {
       return "\(appID):\(url)"
     case let .finder(reference):
       return "\(appID):\(percentEncodePath(reference.path))"
+    case let .icloud(reference):
+      return "\(appID):\(percentEncodePath(reference.path))"
     case let .browser(reference):
       return "\(appID):\(encodeJSONPayload(reference) ?? percentEncodeTokenComponent(reference.url) ?? reference.url)"
     case let .linear(reference):
@@ -140,6 +155,11 @@ enum AppToken {
       }
       return "\(appID):\(reference.id)"
     case let .notion(reference):
+      if let title = percentEncodeTokenComponent(reference.title), !reference.title.isEmpty {
+        return "\(appID):\(reference.id)?t=\(title)"
+      }
+      return "\(appID):\(reference.id)"
+    case let .notes(reference):
       if let title = percentEncodeTokenComponent(reference.title), !reference.title.isEmpty {
         return "\(appID):\(reference.id)?t=\(title)"
       }
@@ -180,6 +200,8 @@ enum AppToken {
       return (appID, .github(kind: gitHubKind(forURL: payload), url: payload))
     case "@finder":
       return (appID, .finder(FinderReference(path: percentDecode(payload), isDirectory: nil)))
+    case "@icloud":
+      return (appID, .icloud(FinderReference(path: percentDecode(payload), isDirectory: nil)))
     case "@browser":
       if let reference = decodeJSONPayload(payload, as: BrowserTabReference.self) {
         return (appID, .browser(reference))
@@ -203,6 +225,13 @@ enum AppToken {
         return (appID, .notion(NotionReference(id: id, title: title)))
       }
       return (appID, .notion(NotionReference(id: payload, title: payload)))
+    case "@notes":
+      if let separator = payload.range(of: "?t=") {
+        let id = String(payload[payload.startIndex..<separator.lowerBound])
+        let title = percentDecode(String(payload[separator.upperBound...]))
+        return (appID, .notes(NotesReference(id: id, title: title)))
+      }
+      return (appID, .notes(NotesReference(id: payload, title: payload)))
     case "@sentry":
       var rest = payload
       var shortID = ""
@@ -240,12 +269,16 @@ enum AppToken {
       return shortGitHub(url)
     case let .finder(reference):
       return shortPath(reference.path)
+    case let .icloud(reference):
+      return shortPath(reference.path)
     case let .browser(reference):
       return shortBrowser(reference)
     case let .linear(reference):
       return reference.identifier.isEmpty ? "Linear" : reference.identifier
     case let .notion(reference):
       return reference.title.isEmpty ? "Notion" : String(reference.title.prefix(28))
+    case let .notes(reference):
+      return reference.title.isEmpty ? "Notes" : String(reference.title.prefix(28))
     case let .sentry(reference):
       return reference.shortID.isEmpty ? "Sentry" : reference.shortID
     case let .figma(reference):

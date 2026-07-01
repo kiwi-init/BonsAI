@@ -46,6 +46,8 @@ enum AppConnectorRegistry {
     Context7AppConnector(),
     GitHubAppConnector(),
     FinderAppConnector(),
+    ICloudAppConnector(),
+    NotesAppConnector(),
     BrowserAppConnector(),
     LinearAppConnector(),
     NotionAppConnector(),
@@ -153,6 +155,60 @@ private struct FinderAppConnector: ComposerAppConnector {
       return "## Finder\nReference the local file or folder needed for this prompt. Include the path and any relevant contents when available."
     case let .finder(reference):
       return await service.render(reference)
+    default:
+      return ""
+    }
+  }
+}
+
+// MARK: - iCloud Drive
+
+private struct ICloudAppConnector: ComposerAppConnector {
+  let id = "@icloud"
+  let minimumQueryLength = 2
+  private let service = ICloudService()
+
+  func placeholder(context: AppSearchContext) -> String { "Search iCloud Drive…" }
+  func idleMessage(context: AppSearchContext) -> String { "Type to search your iCloud Drive." }
+  func noResultsMessage(query: String, context: AppSearchContext) -> String { "No matching files in iCloud Drive." }
+
+  func search(_ query: String, context: AppSearchContext) async throws -> [AppSearchResult] {
+    try await service.search(query)
+  }
+
+  func render(selection: AppSelection?) async throws -> String {
+    switch selection {
+    case .none:
+      return "## iCloud Drive\nReference the relevant file or folder from iCloud Drive — include its path and contents."
+    case let .icloud(reference):
+      return await service.render(reference)
+    default:
+      return ""
+    }
+  }
+}
+
+// MARK: - Apple Notes
+
+private struct NotesAppConnector: ComposerAppConnector {
+  let id = "@notes"
+  let minimumQueryLength = 2
+  private let service = NotesService()
+
+  func placeholder(context: AppSearchContext) -> String { "Search notes…" }
+  func idleMessage(context: AppSearchContext) -> String { "Type to search your Apple Notes." }
+  func noResultsMessage(query: String, context: AppSearchContext) -> String { "No matching notes." }
+
+  func search(_ query: String, context: AppSearchContext) async throws -> [AppSearchResult] {
+    try await service.search(query)
+  }
+
+  func render(selection: AppSelection?) async throws -> String {
+    switch selection {
+    case .none:
+      return "## Apple Notes\nReference the relevant Apple Note — pull its text so the next tool has the note's content."
+    case let .notes(reference):
+      return try await service.render(reference)
     default:
       return ""
     }

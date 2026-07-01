@@ -27,6 +27,44 @@ final class ConnectorTokenTests: XCTestCase {
     XCTAssertEqual(AppToken.label(appID: "@notion", selection: selection), "My Spec")
   }
 
+  func testICloudTokenRoundTrips() {
+    let path = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Specs/Q3 Plan.pdf"
+    let selection = AppSelection.icloud(FinderReference(path: path, isDirectory: false))
+    let token = AppToken.string(appID: "@icloud", selection: selection)
+    XCTAssertEqual(token, "@icloud:/Users/me/Library/Mobile%20Documents/com~apple~CloudDocs/Specs/Q3%20Plan.pdf")
+    guard case let .icloud(ref)? = AppToken.parse(token)?.selection else { return XCTFail("expected .icloud") }
+    XCTAssertEqual(ref.path, path)
+    XCTAssertEqual(AppToken.label(appID: "@icloud", selection: selection), "Q3 Plan.pdf")
+  }
+
+  func testNotesTokenRoundTrips() {
+    let selection = AppSelection.notes(NotesReference(id: "x-coredata://ABC-123/ICNote/p42", title: "Trip Ideas"))
+    let token = AppToken.string(appID: "@notes", selection: selection)
+    XCTAssertEqual(token, "@notes:x-coredata://ABC-123/ICNote/p42?t=Trip%20Ideas")
+    let parsed = AppToken.parse(token)
+    XCTAssertEqual(parsed?.appID, "@notes")
+    guard case let .notes(ref)? = parsed?.selection else { return XCTFail("expected .notes") }
+    XCTAssertEqual(ref.id, "x-coredata://ABC-123/ICNote/p42")
+    XCTAssertEqual(ref.title, "Trip Ideas")
+    XCTAssertEqual(AppToken.label(appID: "@notes", selection: selection), "Trip Ideas")
+  }
+
+  /// The note id (a `x-coredata://…` URL) survives a scan out of surrounding prose intact.
+  func testNotesTokenScansFromText() {
+    let plain = "Summarize @notes:x-coredata://S-1/ICNote/p7?t=Q3%20Plan before the call."
+    let scanned = AppToken.scan(plain)
+    guard let entry = scanned.first(where: { $0.appID == "@notes" }),
+          case let .notes(ref)? = entry.selection else { return XCTFail("expected a scanned .notes token") }
+    XCTAssertEqual(ref.id, "x-coredata://S-1/ICNote/p7")
+    XCTAssertEqual(ref.title, "Q3 Plan")
+  }
+
+  func testNotesHTMLBodyFlattensToText() {
+    let html = "<div>First line</div><div><br></div><ul><li>a &amp; b</li><li>c &lt; d</li></ul>"
+    let text = NotesService.htmlToPlainText(html)
+    XCTAssertEqual(text, "First line\n\n- a & b\n- c < d")
+  }
+
   func testSentryTokenRoundTrips() {
     let selection = AppSelection.sentry(SentryReference(org: "my-org", id: "42", shortID: "WEB-1AB"))
     let token = AppToken.string(appID: "@sentry", selection: selection)
