@@ -52,14 +52,7 @@ under the new version heading.
   allowed tools, and include a Settings control to reset remembered permissions.
 
 ### Fixed
-- **Shift+Enter in the Agent chat inserts a newline instead of sending.** The input used `.onSubmit`,
-  which fired on every Return — including Shift+Return — so holding Shift still sent the message. It
-  now follows the standard chat convention (Slack, Discord, Linear): plain **Enter sends**, and
   **Shift+Enter** breaks the line at the caret. ([#27](https://github.com/ojowwalker77/BonsAI/issues/27))
-- **Shift+Enter now actually breaks the line (follow-up).** The fix above intercepted Return but
-  returned `.ignored` for Shift+Return, so the event fell through to the field editor and **selected
-  all the text** instead of inserting a newline. Shift+Enter now inserts the break directly into the
-  focused field editor at the caret. ([#27](https://github.com/ojowwalker77/BonsAI/issues/27))
 
 ## [1.2.0] - 2026-06-30
 
