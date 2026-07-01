@@ -107,9 +107,9 @@ enum AgentSkillsInstaller {
 
   static func install(_ target: AgentSkillTarget) throws {
     guard let resourceURL = Bundle.appResources.url(
-      forResource: target.resourceName,
-      withExtension: target.resourceExtension,
-      subdirectory: "AgentSkills"
+      forResource: target.resourceName, withExtension: target.resourceExtension
+    ) ?? Bundle.appResources.url(
+      forResource: target.resourceName, withExtension: target.resourceExtension, subdirectory: "AgentSkills"
     ) else {
       throw AgentSkillsInstallerError.missingBundledResource(target)
     }
@@ -142,7 +142,10 @@ enum AgentSkillsInstaller {
   /// real `destinationURL`, which always points at the user's actual home directory.
   static func mergeMarkedSection(_ payload: String, into destination: URL) throws {
     let section = "\(beginMarker)\n\(payload.trimmingCharacters(in: .newlines))\n\(endMarker)"
-    var existing = (try? String(contentsOf: destination, encoding: .utf8)) ?? ""
+    var existing = ""
+    if FileManager.default.fileExists(atPath: destination.path) {
+      existing = try String(contentsOf: destination, encoding: .utf8)
+    }
 
     if let beginRange = existing.range(of: beginMarker),
        let endRange = existing.range(of: endMarker) {
