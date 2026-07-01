@@ -83,7 +83,10 @@ enum AgentSkillTarget: String, CaseIterable, Identifiable {
 
   /// Whether the skill is already on disk at the expected location for this agent.
   var isInstalled: Bool {
-    FileManager.default.fileExists(atPath: destinationURL.path)
+    if ownsDestinationFile {
+      return FileManager.default.fileExists(atPath: destinationURL.path)
+    }
+    return AgentSkillsInstaller.hasInstalledManagedSection(at: destinationURL)
   }
 }
 
@@ -147,13 +150,8 @@ enum AgentSkillsInstaller {
       existing = try String(contentsOf: destination, encoding: .utf8)
     }
 
-    if let beginRange = existing.range(of: beginMarker),
-       let endRange = existing.range(of: endMarker),
-       // Guard against a malformed file where the end marker precedes the begin marker — a reversed
-       // range would trap `replaceSubrange`. If the markers are out of order, fall through and append
-       // a fresh section rather than crash on the user's own file contents.
-       beginRange.lowerBound < endRange.lowerBound {
-      existing.replaceSubrange(beginRange.lowerBound..<endRange.upperBound, with: section)
+    if let managedRange = completeManagedSectionRange(in: existing) {
+      existing.replaceSubrange(managedRange, with: section)
     } else {
       if !existing.isEmpty {
         existing += existing.hasSuffix("\n\n") ? "" : (existing.hasSuffix("\n") ? "\n" : "\n\n")
@@ -161,5 +159,31 @@ enum AgentSkillsInstaller {
       existing += section + "\n"
     }
     try existing.write(to: destination, atomically: true, encoding: .utf8)
+  }
+
+  static func hasInstalledManagedSection(at destination: URL) -> Bool {
+    guard let existing = try? String(contentsOf: destination, encoding: .utf8) else { return false }
+    return completeManagedSectionRange(in: existing) != nil
+  }
+
+  private static func completeManagedSectionRange(in existing: String) -> Range<String.Index>? {
+    let beginRanges = markerRanges(of: beginMarker, in: existing)
+    let endRanges = markerRanges(of: endMarker, in: existing)
+    guard beginRanges.count == 1, endRanges.count == 1 else { return nil }
+    let beginRange = beginRanges[0]
+    let endRange = endRanges[0]
+    guard beginRange.lowerBound < endRange.lowerBound else { return nil }
+    return beginRange.lowerBound..<endRange.upperBound
+  }
+
+  private static func markerRanges(of marker: String, in existing: String) -> [Range<String.Index>] {
+    var ranges: [Range<String.Index>] = []
+    var searchStart = existing.startIndex
+    while searchStart < existing.endIndex,
+          let range = existing[searchStart...].range(of: marker) {
+      ranges.append(range)
+      searchStart = range.upperBound
+    }
+    return ranges
   }
 }

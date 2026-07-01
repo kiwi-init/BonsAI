@@ -25,9 +25,9 @@ under the new version heading.
   place. Chat defaults to **Opus**, describe defaults to **Sonnet**. The choice is passed to
   `claude --model`; Refine and Compile stay on the CLI default. The Describe picker disables itself
   (with a note) when Codex — not Claude — is the active engine, since Codex ignores the Claude model.
-- **Describe board now sees your images.** When describing the board, the agent opens each image
-  card by its file path and reads the picture, so the description reflects what the image actually
-  shows instead of noting "an image".
+- **Describe board now preserves image references.** Image cards keep their absolute file paths in
+  the board graph, so the copied description can point at the exact picture without granting the
+  headless prompt broad local-file read access.
 
 ### Fixed
 - **Copying a board no longer drops image cards.** An image card now contributes its file path to
@@ -53,7 +53,7 @@ under the new version heading.
   allowed tools, and include a Settings control to reset remembered permissions.
 
 ### Fixed
-  **Shift+Enter** breaks the line at the caret. ([#27](https://github.com/ojowwalker77/BonsAI/issues/27))
+- **Shift+Enter in the Agent chat inserts a newline instead of sending.** Shift+Enter breaks the line at the caret. ([#27](https://github.com/ojowwalker77/BonsAI/issues/27))
 
 ## [1.2.0] - 2026-06-30
 

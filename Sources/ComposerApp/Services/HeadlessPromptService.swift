@@ -54,15 +54,12 @@ struct HeadlessPromptService {
     ===== BOARD STATE (JSON graph: nodes, edges, reading order) =====
     \(state)
     """
-    // Describe references image cards by absolute path; allow the read-only Read tool so `claude -p`
-    // can open those images non-interactively (otherwise the permission prompt auto-denies and the
-    // model never sees them). Read can't mutate anything, so this is safe for a describe pass.
-    return try await run(prompt: prompt, engine: engine, model: model, allowReadTool: true)
+    return try await run(prompt: prompt, engine: engine, model: model)
   }
 
   /// `model` is optional: when nil the CLI picks its own default (used by Refine / Compile);
   /// Describe passes the user's chosen `ClaudeModel` so it can run on a different tier.
-  private func run(prompt: String, engine: HeadlessEngine, model: ClaudeModel? = nil, allowReadTool: Bool = false) async throws -> String {
+  private func run(prompt: String, engine: HeadlessEngine, model: ClaudeModel? = nil) async throws -> String {
     guard let executable = CommandLineToolLocator.executableURL(for: engine) else {
       throw HeadlessPromptError.failed("\(engine.title) CLI is not installed. Check Settings to install or re-detect it.")
     }
@@ -71,13 +68,9 @@ struct HeadlessPromptService {
     case .claude:
       arguments = [executable.path, "-p", prompt]
       if let model { arguments += ["--model", model.cliAlias] }
-      // Non-interactive `-p` auto-denies any tool needing permission, so opt Read in explicitly when
-      // the prompt asks the model to open local files (e.g. Describe reading image cards by path).
-      if allowReadTool { arguments += ["--allowedTools", "Read"] }
     case .codex:
       // Read-only sandbox: one-shot refine/compile must not mutate the user's repo. Codex already
-      // runs read-only, so it can open referenced files without an extra flag; `model` and the Read
-      // opt-in are Claude-only, so Codex ignores them.
+      // runs read-only; `model` is Claude-only, so Codex ignores it.
       arguments = [executable.path, "exec", "--sandbox", "read-only", "--ephemeral", prompt]
     }
     let result: Shell.Result

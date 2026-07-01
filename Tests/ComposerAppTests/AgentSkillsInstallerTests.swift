@@ -57,6 +57,28 @@ final class AgentSkillsInstallerTests: XCTestCase {
     XCTAssertTrue(contents.contains("recovered body"))
   }
 
+  func testDanglingBeginMarkerDoesNotLetReinstallDeleteUserNotes() throws {
+    let begin = "<!-- BEGIN BONSAI BOARD SKILL (auto-managed by BonsAI; edits outside the markers are preserved) -->"
+    try "\(begin)\nUSER NOTES\n".write(to: tmpFile, atomically: true, encoding: .utf8)
+
+    try AgentSkillsInstaller.mergeMarkedSection("first install", into: tmpFile)
+    try AgentSkillsInstaller.mergeMarkedSection("second install", into: tmpFile)
+
+    let contents = try String(contentsOf: tmpFile, encoding: .utf8)
+    XCTAssertTrue(contents.contains("USER NOTES"))
+    XCTAssertTrue(contents.contains("first install"))
+    XCTAssertTrue(contents.contains("second install"))
+  }
+
+  func testUnrelatedSharedAgentsFileDoesNotCountAsInstalled() throws {
+    try "# My Codex notes\nNo BonsAI section yet.\n".write(to: tmpFile, atomically: true, encoding: .utf8)
+
+    XCTAssertFalse(AgentSkillsInstaller.hasInstalledManagedSection(at: tmpFile))
+
+    try AgentSkillsInstaller.mergeMarkedSection("the skill body", into: tmpFile)
+    XCTAssertTrue(AgentSkillsInstaller.hasInstalledManagedSection(at: tmpFile))
+  }
+
   /// `Bundle.appResources` only resolves the staged `.app` layout (by design — see its doc
   /// comment), not the xctest runner's working directory, so this checks the source files that
   /// `Package.swift` declares as `.process("Resources")` directly rather than through the bundle.

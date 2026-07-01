@@ -134,9 +134,8 @@ final class BoardViewModel: ObservableObject {
 
   /// Reads the most recent text without creating a runtime/editor bundle for an off-screen card.
   func plainText(for card: CardState) -> String {
-    // An image card contributes its file path — so Copy and Compile emit a reference the reader (or a
-    // coding agent) can open, and Describe can read the actual image off disk. An image with no path
-    // yet (placeholder) contributes nothing.
+    // An image card contributes its file path so Copy, Compile, and Describe emit a concrete
+    // reference the reader (or a coding agent) can open. An image with no path yet contributes nothing.
     if card.elementKind == .image { return card.imagePath ?? "" }
     return interactions[card.id]?.plainText ?? card.text
   }
