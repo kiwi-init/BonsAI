@@ -34,10 +34,10 @@ final class FloatingPanel: NSPanel {
     titlebarAppearsTransparent = true
     title = "BonsAI"
     collectionBehavior = [.fullScreenPrimary]
-    // Opaque so the board reads as a solid app window; the canvas paints the same solid surface
-    // on top, so the window backing matches (the system-rounded corners never show a sliver).
-    isOpaque = true
-    backgroundColor = Theme.nsWindowCanvas
+    // Non-opaque with a clear backing: the canvas paints its own surface — solid at the default
+    // 0 transparency, receding over a behind-window blur as the Settings slider comes up.
+    isOpaque = false
+    backgroundColor = .clear
     hasShadow = true
   }
 

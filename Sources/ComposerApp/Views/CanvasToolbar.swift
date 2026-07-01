@@ -107,7 +107,7 @@ private struct ToolButton: View {
         if let shortcut, !busy {
           Text("\(shortcut)")
             .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(active ? Color.accentColor : (hovering ? Theme.Palette.chromeGlyph : Theme.Palette.chromeBadge))
+            .foregroundStyle(active ? Theme.Palette.accent : (hovering ? Theme.Palette.chromeGlyph : Theme.Palette.chromeBadge))
             .padding(.trailing, 3).padding(.bottom, 2)
         }
       }
@@ -122,7 +122,7 @@ private struct ToolButton: View {
 
   private var foreground: AnyShapeStyle {
     if disabled { return AnyShapeStyle(Theme.Palette.chromeGlyphDim) }
-    if active { return AnyShapeStyle(Color.accentColor) }
+    if active { return AnyShapeStyle(Theme.Palette.accent) }
     return AnyShapeStyle(hovering ? Theme.Palette.chromeGlyphHover : Theme.Palette.chromeGlyph)
   }
 }

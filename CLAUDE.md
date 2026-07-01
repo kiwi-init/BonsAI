@@ -25,11 +25,19 @@ deliberately in July 2026. Do not reintroduce it.
 - **Traffic lights are repositioned** onto the control row's centerline
   (`FloatingPanel.layoutWindowChromeButtons`), re-applied by `PanelController` on
   resize/move/key-state changes. Don't remove those delegate hooks — AppKit resets the buttons.
-- **Light mode never uses black.** All light-mode ink derives from `Theme.lightInk` (#575757).
-  Never hard-code `Color.white`/`Color.black` in views — use the adaptive `Theme.Palette` tokens
-  (chromeGlyph, hoverWash, elementStroke, …). Every hard-coded literal has broken one theme.
-- **The canvas is solid** (`Theme.Palette.windowCanvas`: black dark / paper white light) and the
-  window backing (`Theme.nsWindowCanvas`) must stay in sync with it.
+- **Colors are ThemeFlavors** (`Support/ThemeFlavor.swift`): four named themes — Bonsai Dark,
+  Bonsai Light, Catppuccin Mocha, Catppuccin Latte (palette data in `Support/Catppuccin.swift`).
+  Every `Theme.Palette` token maps a semantic role onto the active flavor's slots (text/subtext/
+  overlay/surface/base); views consume ONLY tokens. Never hard-code a hex or
+  `Color.white`/`Color.black` in a view — every literal has broken one theme. The accent is
+  `Theme.Palette.accent`, never `Color.accentColor`. Theme switching REBUILDS the canvas
+  (PanelController.applyTheme) because tokens are plain flavor lookups; the agent is a singleton
+  (`CanvasAgent.shared`) so its conversation survives. Settings shows flavor-painted preview
+  cards (`ThemePreviewCard`) — new themes are a `ThemeFlavor` + enum case, nothing else.
+- **The canvas is solid by default** (`windowCanvas` = the flavor's `base`) painted over a
+  behind-window blur; the Settings ▸ Appearance ▸ Canvas slider (`canvasTransparencyKey`,
+  default 0) recedes it toward desktop glass. The window itself is non-opaque with a clear
+  backing so the blur can sample — don't flip it back to opaque.
 - **Glass is `floatingGlass` / `composerPopupSurface` / `dockPanelSurface`** — one recipe. No
   custom frosts, no white-fill "frosted" variants (tried, rejected as generic gray).
 - Theming is `ComposerTheme` (System/Light/Dark) applied as the window's `NSAppearance`;

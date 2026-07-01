@@ -34,7 +34,7 @@ struct SidebarButton: View {
   // Adaptive chrome tokens: white-keyed on the dark rail, ink-keyed on light glass.
   private var foreground: AnyShapeStyle {
     if disabled { return AnyShapeStyle(Theme.Palette.chromeGlyphDim) }
-    if active { return AnyShapeStyle(Color.accentColor) }
+    if active { return AnyShapeStyle(Theme.Palette.accent) }
     return AnyShapeStyle(hovering ? Theme.Palette.chromeGlyphHover : Theme.Palette.chromeGlyph)
   }
 }

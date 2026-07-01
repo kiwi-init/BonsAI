@@ -105,7 +105,7 @@ private struct SettingsTab: View {
   }
 
   private var foreground: AnyShapeStyle {
-    if selected { return AnyShapeStyle(Color.accentColor) }
+    if selected { return AnyShapeStyle(Theme.Palette.accent) }
     return AnyShapeStyle(hovering ? Theme.Palette.body : Theme.Palette.menuDesc)
   }
 }
@@ -158,7 +158,8 @@ private struct SettingsContent: View {
   // Both keys are shared with their in-canvas pickers (the Agent dock for chat), so the controls
   // mirror each other live. See [[ModelPreferences]].
   @AppStorage(ModelPreferences.chatModelKey) private var chatModel: ClaudeModel = ModelPreferences.defaultChatModel
-  @AppStorage(ComposerPreferences.themeKey) private var themeRaw = ComposerTheme.dark.rawValue
+  @AppStorage(ComposerPreferences.themeKey) private var themeRaw = ComposerTheme.bonsaiDark.rawValue
+  @AppStorage(ComposerPreferences.canvasTransparencyKey) private var canvasTransparency = 0.0
   /// Whether the agent has standing "Always Allow" tool grants - drives the reset control's
   /// visibility. Refreshed in `onAppear`; flipped false the moment the user resets.
   @State private var agentHasGrants = false
@@ -459,24 +460,56 @@ private struct SettingsContent: View {
   private var appearancePage: some View {
     VStack(alignment: .leading, spacing: 20) {
       themeCard
+      canvasGlassCard
     }
   }
 
-  /// App-wide System / Light / Dark. Applied as the window's `NSAppearance`, so the whole adaptive
-  /// palette flips in place the moment a segment is picked — no rebuild, no relaunch.
-  private var themeCard: some View {
+  /// Canvas background transparency — solid by default; the board behind this panel updates live
+  /// as the slider moves, so it is its own preview.
+  private var canvasGlassCard: some View {
     VStack(alignment: .leading, spacing: 8) {
-      pageHeader("Theme",
-                 "Follow macOS, or force light or dark across the board and panels.")
-      Picker("", selection: $themeRaw) {
-        ForEach(ComposerTheme.allCases) { theme in
-          Text(theme.title).tag(theme.rawValue)
+      pageHeader("Canvas",
+                 "Let the desktop blur through the board surface. Solid keeps the flat canvas.")
+      VStack(spacing: 12) {
+        HStack(alignment: .firstTextBaseline) {
+          Text("Background transparency").font(.callout.weight(.semibold)).foregroundStyle(Theme.Palette.body)
+          Spacer(minLength: 12)
+          Text("\(canvasTransparencyPercent)%")
+            .font(.callout.monospacedDigit().weight(.semibold))
+            .foregroundStyle(Theme.Palette.body)
         }
+        Slider(value: $canvasTransparency, in: 0...ComposerPreferences.maxCanvasTransparency)
+          .tint(Theme.Palette.accent)
+        HStack {
+          Text("Solid")
+          Spacer()
+          Text("Glass")
+        }
+        .font(.caption2)
+        .foregroundStyle(Theme.Palette.count)
       }
-      .labelsHidden()
-      .pickerStyle(.segmented)
       .padding(14)
       .settingsCard()
+    }
+  }
+
+  private var canvasTransparencyPercent: Int {
+    Int((ComposerPreferences.clampedCanvasTransparency(canvasTransparency) / ComposerPreferences.maxCanvasTransparency) * 100)
+  }
+
+  /// The theme gallery: one live-preview card per flavor, painted from that flavor's own palette
+  /// (not the current one), so every option shows exactly what it looks like before you commit.
+  private var themeCard: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      pageHeader("Theme", "Pick the palette for the whole app.")
+      LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+        ForEach(ComposerTheme.allCases) { theme in
+          ThemePreviewCard(theme: theme, selected: themeRaw == theme.rawValue) {
+            Haptics.level()
+            themeRaw = theme.rawValue
+          }
+        }
+      }
     }
     .onChange(of: themeRaw) { _, _ in
       NotificationCenter.default.post(name: .composerThemeChanged, object: nil)
@@ -757,7 +790,7 @@ private struct ConnectorTokenField: View {
         Button("Save", action: save)
           .buttonStyle(.plain)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(draft.trimmed.isEmpty ? Theme.Palette.menuDesc : Color.accentColor)
+          .foregroundStyle(draft.trimmed.isEmpty ? Theme.Palette.menuDesc : Theme.Palette.accent)
           .disabled(draft.trimmed.isEmpty)
         if connected {
           Button("Clear", action: clear)
@@ -777,7 +810,7 @@ private struct ConnectorTokenField: View {
           Spacer(minLength: 8)
           Link("Get a token ↗", destination: url)
             .font(.caption2.weight(.medium))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Theme.Palette.accent)
         }
       }
     }
@@ -797,6 +830,76 @@ private struct ConnectorTokenField: View {
       draft = ""
       revision += 1
     }
+  }
+}
+
+// MARK: - Theme preview
+
+/// A miniature of the app painted from a flavor's own palette: canvas, a floating pill with an
+/// accent dot, and ink lines at three strengths. Selection rings in the flavor's accent.
+private struct ThemePreviewCard: View {
+  let theme: ComposerTheme
+  let selected: Bool
+  var action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    let flavor = theme.flavor
+    Button(action: action) {
+      VStack(spacing: 0) {
+        ZStack(alignment: .topLeading) {
+          Color(nsColor: flavor.base)
+          VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+              Circle().fill(Color(nsColor: flavor.accent)).frame(width: 6, height: 6)
+              Capsule().fill(Color(nsColor: flavor.surface1)).frame(width: 30, height: 7)
+            }
+            .padding(.horizontal, 7).padding(.vertical, 5)
+            .background(Capsule().fill(Color(nsColor: flavor.mantle)))
+            .overlay(Capsule().strokeBorder(Color(nsColor: flavor.surface2).opacity(0.6), lineWidth: 0.5))
+
+            VStack(alignment: .leading, spacing: 4) {
+              RoundedRectangle(cornerRadius: 2).fill(Color(nsColor: flavor.text)).frame(width: 56, height: 5)
+              RoundedRectangle(cornerRadius: 2).fill(Color(nsColor: flavor.subtext0)).frame(width: 40, height: 5)
+              RoundedRectangle(cornerRadius: 2).fill(Color(nsColor: flavor.overlay0)).frame(width: 47, height: 5)
+            }
+            .padding(.leading, 3)
+          }
+          .padding(9)
+        }
+        .frame(height: 82)
+
+        HStack(spacing: 6) {
+          Text(theme.title)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Theme.Palette.body)
+            .lineLimit(1)
+          Spacer(minLength: 0)
+          if selected {
+            Image(systemName: "checkmark.circle.fill")
+              .font(.system(size: 12))
+              .foregroundStyle(Theme.Palette.accent)
+          }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(Theme.Palette.rowFill)
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .strokeBorder(
+            selected ? Theme.Palette.accent : (hovering ? Theme.Palette.panelInnerLine : Theme.Palette.panelHairline),
+            lineWidth: selected ? 2 : 1
+          )
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+    .help(theme.title)
+    .animation(.easeOut(duration: 0.12), value: hovering)
+    .animation(.easeOut(duration: 0.12), value: selected)
   }
 }
 

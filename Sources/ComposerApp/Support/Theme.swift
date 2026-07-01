@@ -4,26 +4,19 @@ import AppKit
 // MARK: - Design tokens
 
 /// One source of truth for spatial, material, color, and motion tokens.
-/// Colors are adaptive so the panel and popovers follow the system appearance.
+/// Colors resolve through the selected `ThemeFlavor` — no view ever hard-codes a hex; tokens map
+/// semantic roles onto flavor slots. A theme switch rebuilds the canvas (PanelController), so
+/// plain colors are safe here.
 enum Theme {
-  /// Light mode never uses pure black ink — every glyph, stroke, and text lands on #575757.
-  /// One constant so the whole light palette derives from a single ink.
-  static let lightInk: CGFloat = 0.341   // #575757
+  /// The active flavor (Settings ▸ Appearance ▸ Theme).
+  static var flavor: ThemeFlavor { ComposerPreferences.theme.flavor }
 
-  static var nsBodyText: NSColor {
-    Adaptive.ns(light: Adaptive.white(lightInk), dark: Adaptive.white(1.00, 0.88))
-  }
+  static var nsBodyText: NSColor { flavor.text }
 
-  static var nsPlaceholderText: NSColor {
-    Adaptive.ns(light: Adaptive.white(lightInk, 0.52), dark: Adaptive.white(1.00, 0.48))
-  }
+  static var nsPlaceholderText: NSColor { flavor.overlay1 }
 
-  /// The standard window's solid canvas: pure black in dark, paper white in light (the Books-style
-  /// reference). Shared by the window's AppKit backing and the SwiftUI canvas surface so the
-  /// system-rounded corners never show a mismatched sliver.
-  static var nsWindowCanvas: NSColor {
-    Adaptive.ns(light: Adaptive.white(0.99), dark: Adaptive.white(0.00))
-  }
+  /// The solid canvas — the flavor's `base`.
+  static var nsWindowCanvas: NSColor { flavor.base }
 
   enum Radius {
     static let panel: CGFloat = 22
@@ -63,60 +56,71 @@ enum Theme {
     static let actionIcon = SwiftUI.Font.body.weight(.medium)
   }
 
-  /// All foreground and surface colors are adaptive. Avoid hard-coded white/black in views.
+  /// Semantic roles mapped onto the active flavor's slots. Views consume ONLY these tokens.
   enum Palette {
-    static var body: Color { Color(nsColor: Theme.nsBodyText) }
-    static var title: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.60), dark: Adaptive.white(1.00, 0.36)) }
-    static var count: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.45), dark: Adaptive.white(1.00, 0.22)) }
-    static var placeholder: Color { Color(nsColor: Theme.nsPlaceholderText) }
-    static var menuDesc: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.80), dark: Adaptive.white(1.00, 0.58)) }
+    private static func c(_ ns: NSColor, _ alpha: CGFloat = 1) -> Color {
+      Color(nsColor: alpha == 1 ? ns : ns.withAlphaComponent(alpha))
+    }
 
-    static var accentFill: Color { Color.accentColor.opacity(0.20) }
-    static var rowFill: Color { Adaptive.color(light: Adaptive.white(0.00, 0.045), dark: Adaptive.white(1.00, 0.055)) }
-    static var selectedRowFill: Color { Color.accentColor.opacity(0.24) }
+    /// The one accent (mauve on Catppuccin, the system accent on Bonsai themes).
+    static var accent: Color { c(Theme.flavor.accent) }
+    static var nsAccent: NSColor { Theme.flavor.accent }
 
-    static var panelHairline: Color { Adaptive.color(light: Adaptive.white(0.00, 0.10), dark: Adaptive.white(1.00, 0.08)) }
-    static var panelInnerLine: Color { Adaptive.color(light: Adaptive.white(1.00, 0.40), dark: Adaptive.white(1.00, 0.06)) }
+    static var body: Color { c(Theme.flavor.text) }
+    static var title: Color { c(Theme.flavor.overlay1) }
+    static var count: Color { c(Theme.flavor.overlay0) }
+    static var placeholder: Color { c(Theme.flavor.overlay1) }
+    static var menuDesc: Color { c(Theme.flavor.subtext0) }
 
-    static var popupScrim: Color { Adaptive.color(light: Adaptive.white(1.00, 0.56), dark: Adaptive.white(0.00, 0.24)) }
+    static var accentFill: Color { c(Theme.flavor.accent, 0.20) }
+    static var rowFill: Color { c(Theme.flavor.surface0, 0.45) }
+    static var selectedRowFill: Color { c(Theme.flavor.accent, 0.24) }
 
-    /// Uniform legibility tint + edge for the unified Liquid Glass surface. Dark tint over the dark
-    /// theme; a milky lift in light so controls read as bright glass, not gray slabs.
-    static var raisedTint: Color { Adaptive.color(light: Adaptive.white(1.00, 0.44), dark: Adaptive.white(0.00, 0.16)) }
-    static var raisedRim: Color { Adaptive.color(light: Adaptive.white(0.00, 0.07), dark: Adaptive.white(1.00, 0.07)) }
+    static var panelHairline: Color { c(Theme.flavor.overlay0, 0.35) }
+    static var panelInnerLine: Color { c(Theme.flavor.surface2, 0.30) }
 
-    static var windowCanvas: Color { Color(nsColor: Theme.nsWindowCanvas) }
+    static var popupScrim: Color { c(Theme.flavor.base, 0.60) }
 
-    /// Chrome tokens for the floating rail / toolbar / pill controls. These replace the old
-    /// white-keyed literals so the same controls read correctly on light glass. All light-mode
-    /// variants derive from the single #575757 ink — never black.
-    static var chromeGlyph: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.85), dark: Adaptive.white(1.00, 0.62)) }
-    static var chromeGlyphHover: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk), dark: Adaptive.white(1.00, 0.95)) }
-    static var chromeGlyphDim: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.40), dark: Adaptive.white(1.00, 0.26)) }
-    static var chromeBadge: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.55), dark: Adaptive.white(1.00, 0.34)) }
-    static var chromeText: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.92), dark: Adaptive.white(1.00, 0.78)) }
-    static var hoverWash: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.10), dark: Adaptive.white(1.00, 0.12)) }
-    static var chromeDivider: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk, 0.28), dark: Adaptive.white(1.00, 0.12)) }
+    /// Uniform legibility tint under the Liquid Glass surface — the flavor's own base, so pills
+    /// read as raised canvas material in every theme.
+    static var raisedTint: Color { c(Theme.flavor.base, 0.45) }
+    static var raisedRim: Color { c(Theme.flavor.overlay0, 0.25) }
+
+    static var windowCanvas: Color { c(Theme.flavor.base) }
+
+    /// Chrome tokens for the floating pills, bars, and their controls.
+    static var chromeGlyph: Color { c(Theme.flavor.subtext1) }
+    static var chromeGlyphHover: Color { c(Theme.flavor.text) }
+    static var chromeGlyphDim: Color { c(Theme.flavor.overlay0) }
+    static var chromeBadge: Color { c(Theme.flavor.overlay1) }
+    static var chromeText: Color { c(Theme.flavor.subtext1) }
+    static var hoverWash: Color { c(Theme.flavor.surface1, 0.55) }
+    static var chromeDivider: Color { c(Theme.flavor.surface2, 0.80) }
     /// Ink for freehand strokes drawn straight on the board.
-    static var inkStroke: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk), dark: Adaptive.white(1.00, 0.82)) }
-    /// Drawn board elements (shapes, lines, arrows): white ink on the dark board, #575757 on light.
-    static var elementStroke: Color { Adaptive.color(light: Adaptive.white(Theme.lightInk), dark: Adaptive.white(1.00, 0.72)) }
-    /// Shape interiors: unfilled on paper (light mode is outline-only, like a whiteboard); a soft
-    /// dark fill on the dark board, where it grounds the shape against the glass. The light value
-    /// is near-zero alpha rather than `.clear` so the interior still hit-tests for click-to-select.
-    static var elementFill: Color { Adaptive.color(light: Adaptive.white(1.00, 0.001), dark: Adaptive.white(0.00, 0.22)) }
-    /// Elements cast a grounding shadow only on the dark board — ink on paper casts none.
-    static var elementShadow: Color { Adaptive.color(light: Adaptive.white(0.00, 0.0), dark: Adaptive.white(0.00, 0.22)) }
+    static var inkStroke: Color { c(Theme.flavor.text, 0.92) }
+    /// Drawn board elements (shapes, lines, arrows).
+    static var elementStroke: Color { c(Theme.flavor.text, 0.85) }
+    /// Shape interiors: unfilled on light themes (outline-only, like a whiteboard); a soft surface
+    /// fill on dark ones, where it grounds the shape against the canvas. The light value is
+    /// near-zero alpha rather than `.clear` so the interior still hit-tests for select.
+    static var elementFill: Color {
+      Theme.flavor.isDark ? c(Theme.flavor.surface0, 0.55) : c(Theme.flavor.text, 0.001)
+    }
+    /// Elements cast a grounding shadow only on dark themes — ink on paper casts none.
+    static var elementShadow: Color {
+      Theme.flavor.isDark ? c(Theme.flavor.crust, 0.55) : Color.clear
+    }
     /// The shape-label chip: solid fills (a translucent fill lets the chip's own shadow bleed
     /// through and muddy it — the "gray smear" bug).
-    static var labelChipFill: Color { Adaptive.color(light: Adaptive.white(0.955), dark: Adaptive.white(0.17)) }
+    static var labelChipFill: Color {
+      Theme.flavor.isDark ? c(Theme.flavor.surface0) : c(Theme.flavor.mantle)
+    }
 
-    static var separator: Color { Adaptive.color(light: Adaptive.white(0.00, 0.085), dark: Adaptive.white(1.00, 0.07)) }
-    static var keycapFill: Color { Adaptive.color(light: Adaptive.white(0.00, 0.060), dark: Adaptive.white(1.00, 0.08)) }
-    static var segmentedFill: Color { Adaptive.color(light: Adaptive.white(0.00, 0.045), dark: Adaptive.white(1.00, 0.05)) }
-    static var tagFill: Color { Adaptive.color(light: Adaptive.white(0.00, 0.060), dark: Adaptive.white(1.00, 0.075)) }
-    static var buttonHover: Color { Adaptive.color(light: Adaptive.white(0.00, 0.070), dark: Adaptive.white(1.00, 0.12)) }
-    static var toastScrim: Color { Adaptive.color(light: Adaptive.white(1.00, 0.42), dark: Adaptive.white(0.00, 0.35)) }
+    static var separator: Color { c(Theme.flavor.surface2, 0.60) }
+    static var keycapFill: Color { c(Theme.flavor.surface0, 0.70) }
+    static var segmentedFill: Color { c(Theme.flavor.surface0, 0.55) }
+    static var tagFill: Color { c(Theme.flavor.surface0, 0.60) }
+    static var buttonHover: Color { c(Theme.flavor.surface1, 0.80) }
   }
 
   enum Shadow {
@@ -271,9 +275,19 @@ extension View {
 
 // MARK: - Panel backdrop
 
-/// The canvas backdrop: a flat, solid, opaque surface — black in dark, paper white in light.
+/// The canvas backdrop: the solid board surface (black in dark, paper white in light) over a
+/// behind-window desktop blur. At the default 0 transparency the surface is fully opaque —
+/// indistinguishable from solid; sliding up recedes it so the frosted desktop shows through.
 struct ComposerPanelBackground: View {
+  @AppStorage(ComposerPreferences.canvasTransparencyKey) private var canvasTransparency = 0.0
+
   var body: some View {
-    Theme.Palette.windowCanvas.ignoresSafeArea()
+    let glass = ComposerPreferences.clampedCanvasTransparency(canvasTransparency)
+      / ComposerPreferences.maxCanvasTransparency
+    ZStack {
+      VisualEffectBackground(material: .hudWindow, blending: .behindWindow, state: .active)
+      Theme.Palette.windowCanvas.opacity(1.0 - 0.65 * glass)
+    }
+    .ignoresSafeArea()
   }
 }

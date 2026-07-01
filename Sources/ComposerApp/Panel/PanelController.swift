@@ -44,10 +44,14 @@ final class PanelController: NSObject, NSWindowDelegate {
     NSApp.deactivate()
   }
 
-  /// Re-resolve System / Light / Dark on the live window — `NSAppearance` cascades to every
-  /// hosted SwiftUI view, so the adaptive palette flips in place with no rebuild.
+  /// Apply the selected theme: set the window's appearance class AND rebuild the canvas —
+  /// palette tokens are plain flavor lookups captured at render, so the tree must re-render from
+  /// scratch. Board content is store-backed and the agent is a singleton, so nothing is lost.
   private func applyTheme() {
-    panel?.appearance = ComposerPreferences.theme.nsAppearance
+    guard let panel else { return }
+    panel.appearance = ComposerPreferences.theme.nsAppearance
+    installContent(ComposerCanvas(), in: panel)
+    panel.layoutWindowChromeButtons()
   }
 
   // MARK: Build

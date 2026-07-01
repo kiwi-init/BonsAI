@@ -248,7 +248,7 @@ struct BoardCardView: View {
         ZStack {
           if showRing {
             RoundedRectangle(cornerRadius: ringRadius, style: .continuous)
-              .strokeBorder(Color.accentColor.opacity(isEditing ? 0.9 : 0.7), lineWidth: hugsContent ? 1.5 : 1)
+              .strokeBorder(Theme.Palette.accent.opacity(isEditing ? 0.9 : 0.7), lineWidth: hugsContent ? 1.5 : 1)
               .frame(width: geo.size.width + ringGap * 2, height: geo.size.height + ringGap * 2)
               .position(x: geo.size.width / 2, y: geo.size.height / 2)
               .allowsHitTesting(false)
@@ -280,7 +280,7 @@ struct BoardCardView: View {
     RoundedRectangle(cornerRadius: 2.5, style: .continuous)
       .fill(Color.white)
       .frame(width: 8, height: 8)
-      .overlay(RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1))
+      .overlay(RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(Theme.Palette.accent.opacity(0.9), lineWidth: 1))
       .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
       .padding(9)
       .contentShape(Rectangle())
@@ -441,8 +441,9 @@ private struct NodeLabel: View {
       .multilineTextAlignment(.center)
       .lineLimit(5)
       .minimumScaleFactor(0.82)
-      .foregroundStyle(Color.white.opacity(0.95))
-      .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+      // Board ink, not white — and ink on paper casts no shadow (elementShadow is clear in light).
+      .foregroundStyle(Theme.Palette.body)
+      .shadow(color: Theme.Palette.elementShadow, radius: 3, y: 1)
       .padding(.horizontal, 12 * zoom)
       .padding(.vertical, 8 * zoom)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -549,7 +550,7 @@ private struct ComposerChipText: View {
     let isApp = item?.kind == .app
     let label = isApp ? AppToken.label(appID: appID, selection: parsed?.selection) : (item?.label ?? raw)
     let cache = MentionStyleCache.shared
-    let color = Color(nsColor: cache.color(for: appID) ?? .controlAccentColor)
+    let color = Color(nsColor: cache.color(for: appID) ?? Theme.Palette.nsAccent)
 
     var chip = Text(verbatim: "")
     // Build the inline icon at the zoomed size so the brand mark stays crisp alongside the text.

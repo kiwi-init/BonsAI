@@ -185,7 +185,7 @@ struct AgentDock: View {
             .font(.system(size: 12, weight: .bold))
             .foregroundStyle(canSend ? Color.white : Theme.Palette.chromeGlyphDim)
             .frame(width: 26, height: 26)
-            .background(Circle().fill(canSend ? Color.accentColor : Theme.Palette.keycapFill))
+            .background(Circle().fill(canSend ? Theme.Palette.accent : Theme.Palette.keycapFill))
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -275,13 +275,13 @@ private struct AgentTranscriptView: View {
       Text(message.text)
         .font(.callout).foregroundStyle(Theme.Palette.body)
         .padding(.horizontal, 11).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.accentColor.opacity(0.20)))
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.Palette.accent.opacity(0.20)))
         .frame(maxWidth: .infinity, alignment: .trailing)
     case .assistant:
       Text(Self.markdown(message.text))
         .font(.callout).foregroundStyle(Theme.Palette.body).textSelection(.enabled)
         .lineSpacing(2.5)
-        .tint(Color.accentColor)
+        .tint(Theme.Palette.accent)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
     case .tool:
@@ -331,7 +331,7 @@ private struct SuggestionChip: View {
       HStack(spacing: 7) {
         Image(systemName: "arrow.up.right")
           .font(.system(size: 9, weight: .semibold))
-          .foregroundStyle(Color.accentColor)
+          .foregroundStyle(Theme.Palette.accent)
         Text(text).font(.caption).foregroundStyle(Theme.Palette.body).lineLimit(1)
       }
       .padding(.horizontal, 10).frame(height: 28)

@@ -24,7 +24,7 @@ struct ComposerCanvas: View {
   /// Observed for the agent's *coarse* state (isRunning / grounding) so the toolbar and ⌘K palette
   /// stay in sync. The streaming transcript lives on `agent.transcript`, which the canvas does NOT
   /// observe, so per-token updates re-render only the dock — never the board.
-  @StateObject private var agent = CanvasAgent()
+  @ObservedObject private var agent = CanvasAgent.shared
   @State private var showAgent = false
   /// The ⌘K command palette (board switcher + buried board-level actions) is showing.
   @State private var showPalette = false
@@ -298,9 +298,9 @@ struct ComposerCanvas: View {
   private var selectionRectView: some View {
     if let rect = selectionRect, rect.width > 1, rect.height > 1 {
       RoundedRectangle(cornerRadius: 2, style: .continuous)
-        .fill(Color.accentColor.opacity(0.10))
+        .fill(Theme.Palette.accent.opacity(0.10))
         .overlay(RoundedRectangle(cornerRadius: 2, style: .continuous)
-          .strokeBorder(Color.accentColor.opacity(0.72), lineWidth: 1))
+          .strokeBorder(Theme.Palette.accent.opacity(0.72), lineWidth: 1))
         .frame(width: rect.width, height: rect.height)
         .position(x: rect.midX, y: rect.midY)
         .allowsHitTesting(false)
@@ -1677,7 +1677,7 @@ private struct BoardPickerRow: View {
     Button(action: onPick) {
       HStack(spacing: 8) {
         Circle()
-          .fill(isCurrent ? Color.accentColor : Color.clear)
+          .fill(isCurrent ? Theme.Palette.accent : Color.clear)
           .frame(width: 5, height: 5)
         Text(title)
           .font(WindowChrome.labelFont)
@@ -1708,7 +1708,7 @@ private struct BoardPickerRow: View {
   private var renameRow: some View {
     HStack(spacing: 8) {
       Circle()
-        .fill(isCurrent ? Color.accentColor : Color.clear)
+        .fill(isCurrent ? Theme.Palette.accent : Color.clear)
         .frame(width: 5, height: 5)
       TextField("Board name", text: $draftName)
         .textFieldStyle(.plain)
@@ -1778,7 +1778,7 @@ private struct ElementDraftPreview: View {
     let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                    width: abs(end.x - start.x), height: abs(end.y - start.y))
     path(in: r).stroke(
-      Color.accentColor.opacity(0.9),
+      Theme.Palette.accent.opacity(0.9),
       style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: dash))
   }
 
