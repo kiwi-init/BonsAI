@@ -10,6 +10,9 @@ struct AgentDock: View {
   var onClose: () -> Void
   @State private var draft = ""
   @FocusState private var inputFocused: Bool
+  /// The model the agent runs on. Shares its key with the Settings ▸ Runtime picker, so the two
+  /// always read back the same value (see [[ModelPreferences]]); `CanvasAgent` reads it at send.
+  @AppStorage(ModelPreferences.chatModelKey) private var chatModel: ClaudeModel = ModelPreferences.defaultChatModel
 
   /// Keep the grounding pill compact: at most 8 characters, then an ellipsis.
   static func trimmed(_ name: String) -> String {
@@ -41,6 +44,7 @@ struct AgentDock: View {
       Text("Agent").font(.body.weight(.semibold)).foregroundStyle(Theme.Palette.body)
       if agent.isRunning { ProgressView().controlSize(.small).scaleEffect(0.62) }
       Spacer(minLength: 8)
+      modelControl
       groundingControl
       HStack(spacing: 2) {
         iconButton("arrow.counterclockwise", help: "New conversation") { agent.reset(); draft = "" }
@@ -82,6 +86,34 @@ struct AgentDock: View {
     } else {
       iconButton("folder.badge.plus", help: "Ground the agent in a folder it can read") { agent.chooseDirectory() }
     }
+  }
+
+  /// A quiet capsule menu mirroring the grounding pill: tap to switch which Claude model the agent
+  /// runs on. The checkmark menu makes the current pick obvious; the label stays compact.
+  private var modelControl: some View {
+    Menu {
+      Picker("Model", selection: $chatModel) {
+        ForEach(ClaudeModel.allCases) { model in
+          Text(model.title).tag(model)
+        }
+      }
+    } label: {
+      HStack(spacing: 5) {
+        Image(systemName: "cpu").font(.system(size: 10.5))
+        Text(chatModel.title).font(.caption.weight(.medium)).lineLimit(1).fixedSize()
+        Image(systemName: "chevron.up.chevron.down").font(.system(size: 7, weight: .semibold))
+      }
+      .foregroundStyle(Theme.Palette.body)
+      .padding(.horizontal, 9).frame(height: 24)
+      .background(Capsule().fill(Color.white.opacity(0.08)))
+      .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+      .contentShape(Capsule())
+    }
+    .menuStyle(.button)
+    .buttonStyle(.plain)
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .help("Model for the agent chat — mirrors Settings ▸ Runtime")
   }
 
   // MARK: Input

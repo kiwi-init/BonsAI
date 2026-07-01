@@ -152,11 +152,19 @@ private struct SettingsContent: View {
   @ObservedObject private var shortcutStore = ShortcutStore.shared
   @AppStorage(EnginePreferences.claudeEnabledKey) private var claudeEnabled = true
   @AppStorage(EnginePreferences.codexEnabledKey) private var codexEnabled = true
+  // Both keys are shared with their in-canvas pickers (the Agent dock for chat), so the controls
+  // mirror each other live. See [[ModelPreferences]].
+  @AppStorage(ModelPreferences.chatModelKey) private var chatModel: ClaudeModel = ModelPreferences.defaultChatModel
+  @AppStorage(ModelPreferences.describeModelKey) private var describeModel: ClaudeModel = ModelPreferences.defaultDescribeModel
   @AppStorage(ComposerPreferences.panelTransparencyKey) private var panelTransparency = ComposerPreferences.defaultPanelTransparency
   @AppStorage(ComposerPreferences.resolveShellAtCopyKey) private var resolveShellAtCopy = false
   /// Whether the agent has standing "Always Allow" tool grants - drives the reset control's
   /// visibility. Refreshed in `onAppear`; flipped false the moment the user resets.
   @State private var agentHasGrants = false
+  /// Bumped after an agent-skills install so `AgentSkillTarget.isInstalled` (a filesystem check,
+  /// not a published property) re-reads and the row badges refresh.
+  @State private var agentSkillsRevision = 0
+  @State private var agentSkillsError: String?
 
   var body: some View {
     ScrollView {
@@ -244,6 +252,8 @@ private struct SettingsContent: View {
         }
       }
 
+      modelsCard
+
       Label("CLI prompts stay on your configured agent accounts. Apple Intelligence runs the on-device lint and never sends a draft off your Mac.", systemImage: "lock.fill")
         .font(.caption)
         .foregroundStyle(Theme.Palette.count)
@@ -280,6 +290,76 @@ private struct SettingsContent: View {
       }
     }
     .onAppear { agentHasGrants = AgentPermissionBroker.hasRememberedGrants }
+  }
+
+  /// Per-surface model choice. Chat mirrors the Agent dock's picker (same key); Describe is the only
+  /// place to set the model the board-description copy runs on. Refine/Compile aren't listed — they
+  /// stay on the CLI default deliberately.
+  private var modelsCard: some View {
+    // These pickers set a `claude --model` alias, so they only bite when Claude actually runs the
+    // surface. Chat is always Claude (the dock agent is hardwired to it); Describe runs on whichever
+    // engine `preferredEngine()` picks — Claude first, else Codex — and Codex ignores the alias. Gate
+    // the Describe picker on Claude being the engine that will run it so it never silently no-ops.
+    let claudeReady = claudeEnabled && capabilities.isAvailable(.claude)
+    let codexReady = codexEnabled && capabilities.isAvailable(.codex)
+    let describeEngine: HeadlessEngine? = claudeReady ? .claude : (codexReady ? .codex : nil)
+    let describeNote: String? = {
+      switch describeEngine {
+      case .claude: return nil
+      case .codex: return "Describe currently runs on Codex, which ignores this Claude model. Enable Claude to use it."
+      case nil: return "No engine is available to run Describe. Enable Claude or Codex in Runtime above."
+      }
+    }()
+    return VStack(alignment: .leading, spacing: 8) {
+      Text("MODELS").sectionLabel()
+      VStack(spacing: 0) {
+        modelRow(
+          title: "Agent chat",
+          subtitle: "The in-canvas agent you talk to. Mirrors the picker in the Agent panel.",
+          selection: $chatModel)
+        Divider().overlay(Theme.Palette.separator)
+        modelRow(
+          title: "Describe board",
+          subtitle: "The toolbar copy that summarizes the whole board into a paste-ready brief.",
+          selection: $describeModel,
+          active: describeEngine == .claude,
+          inactiveNote: describeNote)
+      }
+      .padding(.horizontal, 13)
+      .settingsCard()
+    }
+  }
+
+  private func modelRow(
+    title: String, subtitle: String, selection: Binding<ClaudeModel>,
+    active: Bool = true, inactiveNote: String? = nil
+  ) -> some View {
+    HStack(spacing: 11) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(.callout.weight(.medium)).foregroundStyle(Theme.Palette.body)
+        Text(subtitle)
+          .font(.caption).foregroundStyle(Theme.Palette.menuDesc)
+          .fixedSize(horizontal: false, vertical: true)
+        if !active, let inactiveNote {
+          Text(inactiveNote)
+            .font(.caption).foregroundStyle(Color.orange)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      Spacer(minLength: 8)
+      Picker("", selection: selection) {
+        ForEach(ClaudeModel.allCases) { model in
+          Text(model.title).tag(model)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .fixedSize()
+      .tint(Theme.Palette.body)
+      .disabled(!active)
+      .opacity(active ? 1 : 0.5)
+    }
+    .padding(.vertical, 11)
   }
 
   /// A live count of what's ready, in the mono "instrument" voice. One status dot, neutral capsule.
@@ -463,6 +543,8 @@ private struct SettingsContent: View {
       pageHeader("Connectors",
                  "Type @ in a card to attach live context. Copied drafts become self-contained text — the source is resolved at copy time.")
 
+      agentSkillsCard
+
       shellResolutionCard
 
       ForEach(MentionCatalog.appsByCategory, id: \.category) { group in
@@ -479,6 +561,63 @@ private struct SettingsContent: View {
         }
       }
     }
+  }
+
+  /// Lets coding agents (Claude Code, Codex CLI, Cursor) drive the board over the local canvas API.
+  /// Each row reflects a live filesystem check, not a stored preference — `agentSkillsRevision`
+  /// forces a re-read after install since SwiftUI has no other reason to invalidate this view.
+  private var agentSkillsCard: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("AGENT SKILLS").sectionLabel()
+      VStack(spacing: 0) {
+        ForEach(Array(AgentSkillTarget.allCases.enumerated()), id: \.element.id) { index, target in
+          if index > 0 { Divider().overlay(Theme.Palette.separator) }
+          agentSkillRow(target)
+        }
+      }
+      .padding(.horizontal, 13)
+      .settingsCard()
+      if let agentSkillsError {
+        Text(agentSkillsError)
+          .font(.caption)
+          .foregroundStyle(.orange)
+      }
+    }
+  }
+
+  private func agentSkillRow(_ target: AgentSkillTarget) -> some View {
+    let installed = { _ = agentSkillsRevision; return target.isInstalled }()
+    return HStack(spacing: 11) {
+      Image(systemName: target.symbol)
+        .font(.system(size: 15, weight: .medium))
+        .foregroundStyle(Theme.Palette.body)
+        .frame(width: 24, height: 24)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(target.displayName).font(.callout.weight(.medium)).foregroundStyle(Theme.Palette.body)
+        Text(target.isDetected ? (installed ? "Skill installed" : "Detected on this Mac") : "Not detected")
+          .font(.caption).foregroundStyle(Theme.Palette.menuDesc)
+      }
+      Spacer(minLength: 8)
+      Button(action: { installAgentSkill(target) }) {
+        Text(installed ? "Reinstall" : "Install")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(Theme.Palette.body)
+          .padding(.horizontal, 11)
+          .frame(height: 26)
+      }
+      .buttonStyle(SettingsPillButtonStyle())
+    }
+    .padding(.vertical, 11)
+  }
+
+  private func installAgentSkill(_ target: AgentSkillTarget) {
+    do {
+      try AgentSkillsInstaller.install(target)
+      agentSkillsError = nil
+    } catch {
+      agentSkillsError = "\(target.displayName): \(error.localizedDescription)"
+    }
+    agentSkillsRevision += 1
   }
 
   /// Opt-in for copy-time shell. Off by default; even on, every copy confirms what will run.

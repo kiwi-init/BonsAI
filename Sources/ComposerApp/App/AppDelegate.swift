@@ -5,6 +5,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   let panelController = PanelController()
   private let hotKeyManager = HotKeyManager()
   private let menuBarController = MenuBarController()
+  /// Held strongly so it keeps firing — a `DispatchSourceSignal` is cancelled on dealloc.
+  private var sigtermSource: DispatchSourceSignal?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
@@ -15,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     _ = UpdaterController.shared
     MentionStyleCache.shared.preload()
     CanvasServer.shared.start()
+    promptForAgentSkillsIfNeeded()
+    installSigtermHandler()
 
     NSApp.servicesProvider = self
 
@@ -29,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       name: .composerCaptureToBoard, object: nil)
 
     panelController.show()
+  }
+
+  /// The board autosaves on a ~400ms debounce; without this, an edit made just before quit
+  /// (e.g. a `delete`/`add_text` op from an external agent over the canvas API) is silently
+  /// lost because the pending save's timer never gets to fire.
+  func applicationWillTerminate(_ notification: Notification) {
+    CanvasBridge.shared.flush()
   }
 
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -57,6 +68,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       NotificationCenter.default.post(
         name: .composerCaptureCompleted, object: nil, userInfo: ["path": url.path])
     }
+  }
+
+  /// First launch only: if a coding agent we know how to teach (Claude Code, Codex CLI, Cursor) is
+  /// detected on this Mac, offer to install the canvas-API doc into its config so it can drive the
+  /// board over `127.0.0.1:7337` without the user hand-rolling curl commands. Silent no-op if none
+  /// are detected, or if the user has already been asked once — re-installs live in Settings ▸
+  /// Connectors instead of re-prompting every launch.
+  private func promptForAgentSkillsIfNeeded() {
+    let promptedKey = "app.agentSkills.hasPrompted"
+    guard !UserDefaults.standard.bool(forKey: promptedKey) else { return }
+    let detected = AgentSkillTarget.allCases.filter(\.isDetected)
+    guard !detected.isEmpty else { return }
+
+    UserDefaults.standard.set(true, forKey: promptedKey)
+
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText = "Teach your coding agent the BonsAI board?"
+    let names = detected.map(\.displayName).joined(separator: ", ")
+    alert.informativeText = "BonsAI found \(names) on this Mac. Install a short skill doc so it knows how to read and write your board over the local canvas API? You can redo this anytime in Settings ▸ Connectors."
+    alert.addButton(withTitle: "Install")
+    alert.addButton(withTitle: "Not Now")
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+    let failures = AgentSkillsInstaller.installAllDetected()
+    guard !failures.isEmpty else { return }
+    let failure = NSAlert()
+    failure.alertStyle = .warning
+    failure.messageText = "Couldn't install for everyone"
+    failure.informativeText = failures.map { "\($0.key.displayName): \($0.value.localizedDescription)" }.joined(separator: "\n")
+    failure.runModal()
+  }
+
+  /// A bare `SIGTERM` (e.g. `pkill`, used by the dev-loop relaunch script) bypasses AppKit's
+  /// termination delegate entirely by default, so `applicationWillTerminate` would never run and
+  /// a pending autosave would never flush. Disarm the default disposition and re-route the signal
+  /// through the normal `NSApp.terminate` path so it does.
+  private func installSigtermHandler() {
+    signal(SIGTERM, SIG_IGN)
+    let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+    source.setEventHandler { NSApp.terminate(nil) }
+    source.resume()
+    sigtermSource = source
   }
 
   /// Summon the board (if hidden) and open its companion Settings window.

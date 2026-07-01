@@ -87,7 +87,8 @@ final class CanvasAgent: ObservableObject {
     runToken &+= 1
     let token = runToken
     let resume = sessionID
-    Task { await run(prompt: prompt, resume: resume, token: token) }
+    let model = ModelPreferences.chatModel
+    Task { await run(prompt: prompt, resume: resume, token: token, model: model) }
   }
 
   func stop() {
@@ -107,7 +108,7 @@ final class CanvasAgent: ObservableObject {
 
   // MARK: Run one turn
 
-  private func run(prompt: String, resume: String?, token: Int) async {
+  private func run(prompt: String, resume: String?, token: Int, model: ClaudeModel) async {
     // Write back coarse state only while this turn is still the current one — a stop() or a newer
     // send() bumps `runToken`, after which this (now superseded) turn must leave shared state alone.
     func finish(_ work: () -> Void) {
@@ -136,6 +137,7 @@ final class CanvasAgent: ObservableObject {
     // CLI hit a silent wall in `-p` mode - the model used to invent a non-existent "approve in the
     // app" popup (issue #28). The arbiter tool is intentionally not in `--allowedTools`.
     var args = ["-p", prompt,
+                "--model", model.cliAlias,
                 "--output-format", "stream-json", "--verbose",
                 "--mcp-config", mcp,
                 "--allowedTools", tools,
