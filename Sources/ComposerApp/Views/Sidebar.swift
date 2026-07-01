@@ -89,7 +89,7 @@ struct SidebarButton: View {
   // Icons sit on the dark rail, so they're keyed to white — bright enough to read at rest.
   private var foreground: AnyShapeStyle {
     if disabled { return AnyShapeStyle(Color.white.opacity(0.26)) }
-    if active { return AnyShapeStyle(Color.accentColor) }
+    if active { return AnyShapeStyle(Color.appTint) }
     return AnyShapeStyle(Color.white.opacity(hovering ? 0.95 : 0.62))
   }
 }

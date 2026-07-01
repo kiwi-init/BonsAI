@@ -88,9 +88,9 @@ enum Theme {
     static var placeholder: Color { Color(nsColor: Theme.nsPlaceholderText) }
     static var menuDesc: Color { Adaptive.color(light: Adaptive.white(0.02, 0.58), dark: Adaptive.white(1.00, 0.58)) }
 
-    static var accentFill: Color { Color.accentColor.opacity(0.20) }
+    static var accentFill: Color { Color.appTint.opacity(0.20) }
     static var rowFill: Color { Adaptive.color(light: Adaptive.white(0.00, 0.045), dark: Adaptive.white(1.00, 0.055)) }
-    static var selectedRowFill: Color { Color.accentColor.opacity(0.24) }
+    static var selectedRowFill: Color { Color.appTint.opacity(0.24) }
 
     static var panelBase: Color {
       Adaptive.color(
@@ -141,6 +141,67 @@ enum Theme {
     static let dismissDuration = 0.16
     static let selectionDebounce: TimeInterval = 0.10
   }
+}
+
+// MARK: - Accent tint
+
+/// A restrained, curated set of accent choices — a single signal color, not a full theme system.
+/// `system` follows the macOS accent (the app's original behavior); the rest pin a specific hue.
+/// Every tinted element in the app resolves through `Color.appTint`, so picking one shifts the whole
+/// UI together: selection rings, the active tool, primary glyphs, sliders.
+enum AccentTint: String, CaseIterable, Identifiable {
+  case system
+  case blue
+  case indigo
+  case teal
+  case green
+  case amber
+  case rose
+  case graphite
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .system: "System"
+    case .blue: "Blue"
+    case .indigo: "Indigo"
+    case .teal: "Teal"
+    case .green: "Green"
+    case .amber: "Amber"
+    case .rose: "Rose"
+    case .graphite: "Graphite"
+    }
+  }
+
+  /// Muted, glass-friendly tones so the accent reads as a quiet signal over the frosted panel
+  /// rather than a saturated brand color.
+  var color: Color {
+    switch self {
+    case .system: return Color.accentColor
+    case .blue: return Color(.sRGB, red: 0.29, green: 0.56, blue: 0.96)
+    case .indigo: return Color(.sRGB, red: 0.55, green: 0.47, blue: 0.95)
+    case .teal: return Color(.sRGB, red: 0.20, green: 0.72, blue: 0.70)
+    case .green: return Color(.sRGB, red: 0.31, green: 0.72, blue: 0.45)
+    case .amber: return Color(.sRGB, red: 0.95, green: 0.66, blue: 0.26)
+    case .rose: return Color(.sRGB, red: 0.94, green: 0.44, blue: 0.56)
+    case .graphite: return Color(.sRGB, red: 0.60, green: 0.63, blue: 0.68)
+    }
+  }
+
+  /// The persisted choice, defaulting to `system` when unset or unrecognized.
+  static var current: AccentTint {
+    AccentTint(rawValue: UserDefaults.standard.string(forKey: ComposerPreferences.accentTintKey) ?? "") ?? .system
+  }
+}
+
+extension Color {
+  /// The single source of truth for the app's accent. Reads the user's `AccentTint` choice (or the
+  /// system accent by default). Views literally write `Color.appTint` instead of `Color.accentColor`
+  /// because on macOS a custom `Color.accentColor` only takes effect under the "Multicolor" system
+  /// setting — this token always honors the in-app choice. Re-render is driven by the enclosing
+  /// view observing `ComposerPreferences.accentTintKey` via `@AppStorage`.
+  static var appTint: Color { AccentTint.current.color }
 }
 
 // MARK: - Adaptive colors

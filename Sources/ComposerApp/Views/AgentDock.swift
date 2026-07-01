@@ -13,6 +13,8 @@ struct AgentDock: View {
   /// The model the agent runs on. Shares its key with the Settings ▸ Runtime picker, so the two
   /// always read back the same value (see [[ModelPreferences]]); `CanvasAgent` reads it at send.
   @AppStorage(ModelPreferences.chatModelKey) private var chatModel: ClaudeModel = ModelPreferences.defaultChatModel
+  /// The chosen accent — observed so the dock re-tints live and applied as `.tint` for its controls.
+  @AppStorage(ComposerPreferences.accentTintKey) private var accentTint: AccentTint = .system
 
   /// Keep the grounding pill compact: at most 8 characters, then an ellipsis.
   static func trimmed(_ name: String) -> String {
@@ -34,6 +36,7 @@ struct AgentDock: View {
     // dock reads as a second panel floating beside the card. The panel's own drop shadow grounds it.
     .background(ComposerPanelBackground(radius: Theme.Radius.panel))
     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
+    .tint(accentTint.color)
   }
 
   // MARK: Header
@@ -151,7 +154,7 @@ struct AgentDock: View {
         Button(action: submit) {
           Image(systemName: "arrow.up.circle.fill")
             .font(.title3)
-            .foregroundStyle(canSend ? Color.accentColor : Theme.Palette.title.opacity(0.6))
+            .foregroundStyle(canSend ? Color.appTint : Theme.Palette.title.opacity(0.6))
         }.buttonStyle(.plain).disabled(!canSend)
       }
     }
@@ -232,13 +235,13 @@ private struct AgentTranscriptView: View {
       Text(message.text)
         .font(.callout).foregroundStyle(Theme.Palette.body)
         .padding(.horizontal, 11).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.accentColor.opacity(0.20)))
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.appTint.opacity(0.20)))
         .frame(maxWidth: .infinity, alignment: .trailing)
     case .assistant:
       Text(Self.markdown(message.text))
         .font(.callout).foregroundStyle(Theme.Palette.body).textSelection(.enabled)
         .lineSpacing(2.5)
-        .tint(Color.accentColor)
+        .tint(Color.appTint)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
     case .tool:

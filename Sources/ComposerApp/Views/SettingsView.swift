@@ -11,6 +11,9 @@ struct SettingsOverlay: View {
   var onClose: () -> Void
 
   @State private var destination: SettingsDestination = .runtime
+  /// The chosen accent — observed so Settings re-tints live and applied as `.tint` for its controls
+  /// (including the accent swatches' own selection ring). See [[Theme]] `AccentTint`.
+  @AppStorage(ComposerPreferences.accentTintKey) private var accentTint: AccentTint = .system
 
   var body: some View {
     VStack(spacing: 0) {
@@ -28,6 +31,7 @@ struct SettingsOverlay: View {
     // corner radius — so Settings reads as a second panel beside the card.
     .background(ComposerPanelBackground(radius: Theme.Radius.panel))
     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
+    .tint(accentTint.color)
     .onExitCommand(perform: onClose)
     .animation(Theme.Motion.accessory, value: destination)
   }
@@ -101,7 +105,7 @@ private struct SettingsTab: View {
   }
 
   private var foreground: AnyShapeStyle {
-    if selected { return AnyShapeStyle(Color.accentColor) }
+    if selected { return AnyShapeStyle(Color.appTint) }
     return AnyShapeStyle(hovering ? Theme.Palette.body : Theme.Palette.menuDesc)
   }
 }
@@ -157,6 +161,7 @@ private struct SettingsContent: View {
   @AppStorage(ModelPreferences.chatModelKey) private var chatModel: ClaudeModel = ModelPreferences.defaultChatModel
   @AppStorage(ModelPreferences.describeModelKey) private var describeModel: ClaudeModel = ModelPreferences.defaultDescribeModel
   @AppStorage(ComposerPreferences.panelTransparencyKey) private var panelTransparency = ComposerPreferences.defaultPanelTransparency
+  @AppStorage(ComposerPreferences.accentTintKey) private var accentTint: AccentTint = .system
   @AppStorage(ComposerPreferences.resolveShellAtCopyKey) private var resolveShellAtCopy = false
   /// Whether the agent has standing "Always Allow" tool grants - drives the reset control's
   /// visibility. Refreshed in `onAppear`; flipped false the moment the user resets.
@@ -497,7 +502,7 @@ private struct SettingsContent: View {
               .foregroundStyle(Theme.Palette.body)
           }
           Slider(value: $panelTransparency, in: 0...ComposerPreferences.maxPanelTransparency)
-            .tint(Color.accentColor)
+            .tint(Color.appTint)
           HStack {
             Text("Opaque")
             Spacer()
@@ -509,6 +514,36 @@ private struct SettingsContent: View {
         .padding(14)
         .settingsCard()
       }
+
+      accentTintSection
+    }
+  }
+
+  /// A restrained accent picker — one signal color for the whole app, not a theme system. `System`
+  /// follows the macOS accent; every other swatch pins a specific muted hue.
+  private var accentTintSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Accent").font(.headline).foregroundStyle(Theme.Palette.body)
+        Text("The single tint used for selection, the active tool, and primary actions.")
+          .font(.caption)
+          .foregroundStyle(Theme.Palette.menuDesc)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 10) {
+          ForEach(AccentTint.allCases) { option in
+            AccentSwatch(option: option, selected: accentTint == option) { accentTint = option }
+          }
+          Spacer(minLength: 0)
+        }
+        Text(accentTint.title)
+          .font(.caption.weight(.medium))
+          .foregroundStyle(Theme.Palette.count)
+      }
+      .padding(14)
+      .settingsCard()
     }
   }
 
@@ -838,7 +873,7 @@ private struct ConnectorTokenField: View {
         Button("Save", action: save)
           .buttonStyle(.plain)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(draft.trimmed.isEmpty ? Theme.Palette.menuDesc : Color.accentColor)
+          .foregroundStyle(draft.trimmed.isEmpty ? Theme.Palette.menuDesc : Color.appTint)
           .disabled(draft.trimmed.isEmpty)
         if connected {
           Button("Clear", action: clear)
@@ -858,7 +893,7 @@ private struct ConnectorTokenField: View {
           Spacer(minLength: 8)
           Link("Get a token ↗", destination: url)
             .font(.caption2.weight(.medium))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.appTint)
         }
       }
     }
@@ -894,6 +929,36 @@ private struct SettingsPillButtonStyle: ButtonStyle {
       .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
       .scaleEffect(configuration.isPressed ? 0.97 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+  }
+}
+
+/// One accent choice: a filled dot that draws a ring when selected. `System` shows the live macOS
+/// accent so the default reads honestly.
+private struct AccentSwatch: View {
+  let option: AccentTint
+  let selected: Bool
+  var action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      Circle()
+        .fill(option.color)
+        .frame(width: 22, height: 22)
+        .overlay(Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+        .overlay(
+          Circle()
+            .strokeBorder(Color.white.opacity(selected ? 0.9 : 0), lineWidth: 2)
+            .padding(-3)
+        )
+        .scaleEffect(hovering && !selected ? 1.08 : 1)
+        .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+    .help(option.title)
+    .animation(.easeOut(duration: 0.12), value: hovering)
+    .animation(Theme.Motion.accessory, value: selected)
   }
 }
 

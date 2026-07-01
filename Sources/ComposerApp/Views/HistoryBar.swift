@@ -7,16 +7,31 @@ extension View {
   /// The rail floats over the desktop, so it can't use adaptive Liquid Glass (that turns
   /// white over a light wallpaper). It mirrors the card's own material — HUD vibrancy blurring
   /// the desktop + a matching dark tint — so it reads as the same glass, just detached.
+  ///
+  /// The tint tracks the Settings ▸ Appearance transparency slider, so the rails (the left action
+  /// rail and the top toolbar — the canvas "side menus") recede in step with the board and the
+  /// Agent/Settings panels instead of staying fixed and heavy at high transparency (#42). They stay
+  /// a touch denser than the board so small controls remain legible over an arbitrary desktop.
   func railSurface() -> some View {
     let shape = Capsule(style: .continuous)
     return self
-      .background {
-        ZStack {
-          VisualEffectBackground(material: .hudWindow, blending: .behindWindow, state: .active)
-          Color.black.opacity(0.6)
-        }
-      }
+      .background { RailSurfaceBackground() }
       .clipShape(shape)
+  }
+}
+
+/// The rail's frosted backing, whose legibility tint follows the shared panel-transparency setting.
+private struct RailSurfaceBackground: View {
+  @AppStorage(ComposerPreferences.panelTransparencyKey) private var panelTransparency = ComposerPreferences.defaultPanelTransparency
+
+  var body: some View {
+    let glass = ComposerPreferences.clampedPanelTransparency(panelTransparency) / ComposerPreferences.maxPanelTransparency
+    // Denser than the board's `0.80 − 0.58·glass` by a small margin, but recedes on the same curve.
+    let tint = 0.82 - 0.50 * glass
+    ZStack {
+      VisualEffectBackground(material: .hudWindow, blending: .behindWindow, state: .active)
+      Color.black.opacity(tint)
+    }
   }
 }
 
@@ -75,7 +90,7 @@ private struct HistoryNewRow: View {
         Spacer(minLength: 0)
         Text("⌘N").font(.caption.weight(.medium)).foregroundStyle(.tertiary)
       }
-      .foregroundStyle(hovering ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Theme.Palette.body))
+      .foregroundStyle(hovering ? AnyShapeStyle(Color.appTint) : AnyShapeStyle(Theme.Palette.body))
       .padding(.horizontal, 14)
       .frame(height: 42)
       .contentShape(Rectangle())
@@ -205,7 +220,7 @@ private struct HistoryRow: View {
   // MARK: Shared chrome
 
   private var indicator: some View {
-    Circle().fill(isCurrent ? Color.accentColor : Color.clear).frame(width: 6, height: 6)
+    Circle().fill(isCurrent ? Color.appTint : Color.clear).frame(width: 6, height: 6)
   }
 
   private var rowBackground: some View {

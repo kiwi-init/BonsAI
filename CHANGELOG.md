@@ -11,6 +11,23 @@ under the new version heading.
 
 ## [Unreleased]
 
+### Added
+- **Hold Shift to draw a perfect shape.** While dragging out a rectangle, ellipse, or diamond,
+  holding **Shift** snaps the bounding box to a square — a clean square, a perfect circle, or a
+  uniform diamond. It also constrains corner resizing of those shapes. The state is read live, so
+  pressing or releasing Shift mid-drag updates the shape immediately; lines, arrows, and freehand
+  stay fully freeform so quick sketching is unchanged.
+- **Accent tint.** **Settings ▸ Appearance** now offers a restrained accent picker — *System* (the
+  macOS accent, the default) plus seven muted hues. The choice drives one signal color across the
+  whole app: selection rings, the active tool, primary actions, and native controls all shift
+  together. It's a single accent, not a full theme.
+
+### Fixed
+- **Side rails now follow the transparency setting (#42).** The floating left action rail and top
+  toolbar were pinned to a fixed dark tint, so at high **Background transparency** they read as heavy
+  and detached while the board and the Agent/Settings panels went glassy. They now recede on the same
+  curve as the board (kept a touch denser for legibility), so the whole workspace stays consistent.
+
 ## [1.2.2] - 2026-06-30
 
 ### Added

@@ -39,6 +39,9 @@ struct ComposerCanvas: View {
   @State private var paletteReturnCardID: UUID?
   /// Mirrors the agent's grounding folder so the toolbar reflects it reactively.
   @AppStorage("agent.groundingDirectory") private var groundingPath = ""
+  /// The chosen accent. Observed here so the whole board re-tints live when it changes, and applied
+  /// as `.tint` so native controls follow the same signal color that `Color.appTint` drives.
+  @AppStorage(ComposerPreferences.accentTintKey) private var accentTint: AccentTint = .system
 
   // Board transform. Pointer locations are normalized back into board space so selection,
   // placement, and dragging keep working at every zoom level.
@@ -54,6 +57,7 @@ struct ComposerCanvas: View {
   var body: some View {
     GeometryReader { proxy in canvasRoot(proxy: proxy) }
     .ignoresSafeArea()
+    .tint(accentTint.color)
     .animation(Theme.Motion.accessory, value: isWorking)
     .animation(Theme.Motion.accessory, value: store.isHistoryOpen)
     .animation(Theme.Motion.accessory, value: store.compiledDraft)
@@ -221,7 +225,7 @@ struct ComposerCanvas: View {
 
   private func ingestQuickCapture(_ text: String) {
     guard board.captureExternalText(text) != nil else { return }
-    show(Toast(text: "Captured on board", symbol: "leaf.fill", tint: .accentColor))
+    show(Toast(text: "Captured on board", symbol: "leaf.fill", tint: .appTint))
   }
 
   /// The agent and Settings share the single auxiliary-panel slot.
@@ -320,9 +324,9 @@ struct ComposerCanvas: View {
   private var selectionRectView: some View {
     if let rect = selectionRect, rect.width > 1, rect.height > 1 {
       RoundedRectangle(cornerRadius: 2, style: .continuous)
-        .fill(Color.accentColor.opacity(0.10))
+        .fill(Color.appTint.opacity(0.10))
         .overlay(RoundedRectangle(cornerRadius: 2, style: .continuous)
-          .strokeBorder(Color.accentColor.opacity(0.72), lineWidth: 1))
+          .strokeBorder(Color.appTint.opacity(0.72), lineWidth: 1))
         .frame(width: rect.width, height: rect.height)
         .position(x: rect.midX, y: rect.midY)
         .allowsHitTesting(false)
@@ -501,7 +505,7 @@ struct ComposerCanvas: View {
         text: draft,
         onCopy: {
           if copyToClipboard(draft) {
-            show(Toast(text: "Copied compiled draft", symbol: "doc.on.doc.fill", tint: .accentColor))
+            show(Toast(text: "Copied compiled draft", symbol: "doc.on.doc.fill", tint: .appTint))
           } else {
             show(Toast(text: "macOS did not accept the clipboard contents. The compiled draft was not copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
           }
@@ -868,9 +872,9 @@ struct ComposerCanvas: View {
     }
 
     if runShell {
-      show(Toast(text: "Running \(shellCommands.count) command\(shellCommands.count == 1 ? "" : "s")\u{2026}", symbol: "terminal", tint: .accentColor))
+      show(Toast(text: "Running \(shellCommands.count) command\(shellCommands.count == 1 ? "" : "s")\u{2026}", symbol: "terminal", tint: .appTint))
     } else if connectors > 0 {
-      show(Toast(text: "Resolving connectors\u{2026}", symbol: "arrow.triangle.2.circlepath", tint: .accentColor))
+      show(Toast(text: "Resolving connectors\u{2026}", symbol: "arrow.triangle.2.circlepath", tint: .appTint))
     }
     // Commands run in the board's grounding folder when one is set, else the user's home.
     let commandDirectory = agent.groundingDirectory?.path ?? NSHomeDirectory()
@@ -901,7 +905,7 @@ struct ComposerCanvas: View {
       if runShell { resolved.append("\(shellCommands.count) command\(shellCommands.count == 1 ? "" : "s") run") }
       if connectors > 0 { resolved.append("\(connectors) connector\(connectors == 1 ? "" : "s") resolved") }
       let message = resolved.isEmpty ? "Copied self-contained text" : "Copied \u{00b7} " + resolved.joined(separator: ", ")
-      show(Toast(text: message, symbol: "doc.on.doc.fill", tint: .accentColor))
+      show(Toast(text: message, symbol: "doc.on.doc.fill", tint: .appTint))
     }
   }
 
@@ -944,12 +948,12 @@ struct ComposerCanvas: View {
     }
     isDescribing = true
     isWorking = true
-    show(Toast(text: "Describing board\u{2026}", symbol: "doc.on.doc", tint: .accentColor))
+    show(Toast(text: "Describing board\u{2026}", symbol: "doc.on.doc", tint: .appTint))
     Task {
       do {
         let description = try await service.describeBoard(state: state, engine: engine, model: ModelPreferences.describeModel)
         if copyToClipboard(description) {
-          show(Toast(text: "Copied board description", symbol: "doc.on.doc.fill", tint: .accentColor))
+          show(Toast(text: "Copied board description", symbol: "doc.on.doc.fill", tint: .appTint))
         } else {
           show(Toast(text: "macOS did not accept the clipboard contents. The board description was not copied.", symbol: "exclamationmark.triangle.fill", tint: .orange))
         }
@@ -1105,7 +1109,7 @@ struct ComposerCanvas: View {
         show(Toast(text: "Screenshot read \u{00b7} ready for the prompt", symbol: "checkmark.circle.fill", tint: .green))
         return
       } else {
-        show(Toast(text: "Added screenshot \u{00b7} no text found", symbol: "photo", tint: .accentColor))
+        show(Toast(text: "Added screenshot \u{00b7} no text found", symbol: "photo", tint: .appTint))
         return
       }
 
@@ -1114,7 +1118,7 @@ struct ComposerCanvas: View {
         board.setImageUnderstanding(id, "[Screenshot]\n\(ocr)")
         show(Toast(text: "Screenshot read \u{00b7} ready for the prompt", symbol: "checkmark.circle.fill", tint: .green))
       } else {
-        show(Toast(text: "Added screenshot \u{00b7} no text found", symbol: "photo", tint: .accentColor))
+        show(Toast(text: "Added screenshot \u{00b7} no text found", symbol: "photo", tint: .appTint))
       }
 
       // Stage 2: upgrade to the cleaned, classified version in the background if the model can.
@@ -1350,7 +1354,7 @@ private struct BoardViewportInput: NSViewRepresentable {
           state.onFreehandChanged(freehandPoints)
         }
       case .placing:
-        state.onElementDraftChanged(start, point)
+        state.onElementDraftChanged(start, constrained(point, from: start, event: event))
       case .panning:
         lastPan = delta
         state.onPanChanged(delta)
@@ -1381,7 +1385,7 @@ private struct BoardViewportInput: NSViewRepresentable {
           state.onElementDraftCancelled()
           state.onTap(start, dragModifiers)   // a click (no real drag) still drops a default size
         } else {
-          state.onElementDraftEnded(start, point)
+          state.onElementDraftEnded(start, constrained(point, from: start, event: event))
         }
       case .panning:
         state.onPanEnded(lastPan)
@@ -1407,6 +1411,17 @@ private struct BoardViewportInput: NSViewRepresentable {
         width: abs(end.x - start.x),
         height: abs(end.y - start.y)
       )
+    }
+
+    /// While Shift is held and a square-constrainable shape is active, snap the drag end so the
+    /// bounding box is square (→ circle/square/uniform diamond), preserving the drag direction.
+    /// Read live off the event so pressing or releasing Shift mid-drag updates the preview.
+    private func constrained(_ end: CGPoint, from start: CGPoint, event: NSEvent) -> CGPoint {
+      guard event.modifierFlags.contains(.shift), state.tool.constrainsToSquare else { return end }
+      let dx = end.x - start.x, dy = end.y - start.y
+      let side = max(abs(dx), abs(dy))
+      return CGPoint(x: start.x + (dx < 0 ? -side : side),
+                     y: start.y + (dy < 0 ? -side : side))
     }
   }
 }
@@ -1696,7 +1711,7 @@ private struct ElementDraftPreview: View {
     let r = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                    width: abs(end.x - start.x), height: abs(end.y - start.y))
     path(in: r).stroke(
-      Color.accentColor.opacity(0.9),
+      Color.appTint.opacity(0.9),
       style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: dash))
   }
 

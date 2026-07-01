@@ -10,6 +10,15 @@ enum CanvasElementKind: String, Codable, Equatable, CaseIterable {
   case arrow
   case freehand
   case image
+
+  /// Whether holding Shift while resizing snaps the box to a square — a perfect circle, square, or
+  /// uniform diamond. Only the box shapes constrain; lines, freehand, text, and images resize freely.
+  var constrainsToSquare: Bool {
+    switch self {
+    case .rectangle, .ellipse, .diamond: true
+    default: false
+    }
+  }
 }
 
 struct CanvasPoint: Codable, Equatable {

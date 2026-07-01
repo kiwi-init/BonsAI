@@ -35,6 +35,16 @@ enum CanvasTool: Equatable {
     default: false
     }
   }
+
+  /// Whether holding Shift while drawing/resizing snaps the bounding box to a square — a perfect
+  /// circle (ellipse), square (rectangle), or uniform diamond. Lines/arrows and freehand are left
+  /// unconstrained so freeform sketching stays fast.
+  var constrainsToSquare: Bool {
+    switch self {
+    case .rectangle, .ellipse, .diamond: true
+    default: false
+    }
+  }
 }
 
 /// The floating top tool cluster — the canvas's analog of the left `Sidebar`, using the same
@@ -154,7 +164,7 @@ private struct ToolButton: View {
         if let shortcut, !busy {
           Text("\(shortcut)")
             .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(active ? Color.accentColor : Color.white.opacity(hovering ? 0.6 : 0.34))
+            .foregroundStyle(active ? Color.appTint : Color.white.opacity(hovering ? 0.6 : 0.34))
             .padding(.trailing, 3).padding(.bottom, 2)
         }
       }
@@ -169,7 +179,7 @@ private struct ToolButton: View {
 
   private var foreground: AnyShapeStyle {
     if disabled { return AnyShapeStyle(Color.white.opacity(0.26)) }
-    if active { return AnyShapeStyle(Color.accentColor) }
+    if active { return AnyShapeStyle(Color.appTint) }
     return AnyShapeStyle(Color.white.opacity(hovering ? 0.95 : 0.62))
   }
 }

@@ -246,7 +246,7 @@ struct BoardCardView: View {
         ZStack {
           if showRing {
             RoundedRectangle(cornerRadius: ringRadius, style: .continuous)
-              .strokeBorder(Color.accentColor.opacity(isEditing ? 0.9 : 0.7), lineWidth: hugsContent ? 1.5 : 1)
+              .strokeBorder(Color.appTint.opacity(isEditing ? 0.9 : 0.7), lineWidth: hugsContent ? 1.5 : 1)
               .frame(width: geo.size.width + ringGap * 2, height: geo.size.height + ringGap * 2)
               .position(x: geo.size.width / 2, y: geo.size.height / 2)
               .allowsHitTesting(false)
@@ -278,7 +278,7 @@ struct BoardCardView: View {
     RoundedRectangle(cornerRadius: 2.5, style: .continuous)
       .fill(Color.white)
       .frame(width: 8, height: 8)
-      .overlay(RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1))
+      .overlay(RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(Color.appTint.opacity(0.9), lineWidth: 1))
       .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
       .padding(9)
       .contentShape(Rectangle())
@@ -299,6 +299,18 @@ struct BoardCardView: View {
     case .topTrailing: maxX += dx; minY += dy
     case .bottomLeading: minX += dx; maxY += dy
     case .bottomTrailing: maxX += dx; maxY += dy
+    }
+    // Holding Shift on a box shape keeps it square (circle/square/uniform diamond). Read the live
+    // modifier flags so the constraint tracks Shift being pressed/released during the drag; the box
+    // is squared to its larger side, anchored at the corner opposite the one being dragged.
+    if NSEvent.modifierFlags.contains(.shift), card.elementKind.constrainsToSquare {
+      let side = max(maxX - minX, maxY - minY)
+      switch corner {
+      case .topLeading: minX = maxX - side; minY = maxY - side
+      case .topTrailing: maxX = minX + side; minY = maxY - side
+      case .bottomLeading: minX = maxX - side; maxY = minY + side
+      case .bottomTrailing: maxX = minX + side; maxY = minY + side
+      }
     }
     if maxX - minX < minW {
       if corner == .topLeading || corner == .bottomLeading { minX = maxX - minW } else { maxX = minX + minW }

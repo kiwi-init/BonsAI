@@ -6,6 +6,8 @@ enum ComposerPreferences {
   static let editorFontSizeKey = "composer.editor.fontPointSize"
   static let panelTransparencyKey = "composer.panel.backgroundTransparency"
   static let resolveShellAtCopyKey = "composer.copy.resolveShellCommands"
+  /// The user's chosen accent tint (see `AccentTint`). Absent ⇒ follow the system accent.
+  static let accentTintKey = "composer.appearance.accentTint"
 
   static let minEditorFontSize: CGFloat = 11
   static let maxEditorFontSize: CGFloat = 28
