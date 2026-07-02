@@ -41,7 +41,7 @@ struct ComposerCanvas: View {
   /// The card that held the caret when the palette was summoned, captured before the palette's
   /// search field steals first responder — so a cancel can hand editing back to it.
   @State private var paletteReturnCardID: UUID?
-  /// Mirrors the agent's grounding folder so the toolbar reflects it reactively.
+  /// Mirrors the agent's grounding folder so the ⌘K palette reflects it reactively.
   @AppStorage("agent.groundingDirectory") private var groundingPath = ""
 
   // Board transform. Pointer locations are normalized back into board space so selection,
@@ -101,7 +101,7 @@ struct ComposerCanvas: View {
       }
 
       // Floating chrome: board identity top-left (the pill IS the board manager), agent top-right,
-      // everything hands-on (tools, zoom, folder, settings) in one bottom command bar.
+      // everything hands-on (tools, zoom, settings) in one bottom command bar.
       boardSwitcherPill(in: proxy.size)
       boardActionsPill(in: proxy.size)
       bottomCommandBar(fit: inner)
@@ -543,11 +543,10 @@ struct ComposerCanvas: View {
   }
 
   /// Standard-window mode: ONE bottom-center command bar carrying everything hands-on —
-  /// zoom · tools · folder/settings — tldraw-style, so the top stays calm (identity left,
+  /// zoom · tools · settings — tldraw-style, so the top stays calm (identity left,
   /// AI actions right) and the bottom is a single strong grouping instead of scattered pills.
+  /// Grounding moved into the agent chat (AgentDock) and the ⌘K palette.
   private func bottomCommandBar(fit innerSize: CGSize) -> some View {
-    let grounded = !groundingPath.isEmpty
-    let folderName = grounded ? URL(fileURLWithPath: groundingPath).lastPathComponent : nil
     return HStack(spacing: WindowChrome.itemSpacing) {
       SidebarButton(symbol: "minus.magnifyingglass", help: "Zoom out") { zoom(0.8, anchoredAt: zoomAnchor) }
       Button(action: { Haptics.tap(); withAnimation(Theme.Motion.accessory) { scale = 1 } }) {
@@ -574,18 +573,6 @@ struct ComposerCanvas: View {
 
       barDivider
 
-      SidebarButton(symbol: grounded ? "folder.fill" : "folder.badge.plus",
-                    help: folderName.map { "Agent grounded in \($0)  ·  click to change" }
-                      ?? "Ground the agent in a folder it can read",
-                    active: grounded) { agent.chooseDirectory() }
-        .contextMenu {
-          if grounded {
-            Button("Change Folder\u{2026}") { agent.chooseDirectory() }
-            Button("Remove Grounding", role: .destructive) { agent.setGroundingDirectory(nil) }
-          } else {
-            Button("Ground in Folder\u{2026}") { agent.chooseDirectory() }
-          }
-        }
       SidebarButton(symbol: "gearshape", help: "Settings  ⌘,",
                     active: store.isSettingsOpen) { toggleSettings() }
     }
