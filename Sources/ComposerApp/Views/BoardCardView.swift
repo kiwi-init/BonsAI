@@ -4,7 +4,7 @@ import SwiftUI
 
 /// One text card on the board, with Excalidraw-style interaction:
 /// • single click selects (ring + corner resize handles), • drag the body moves it,
-/// • double-click (or click an already-selected card) edits the text, • corner handles resize,
+/// • double-click edits the text, • corner handles resize,
 /// • ✕ deletes. The body is the unmodified `FreeWriteEditor`; it only receives mouse events
 /// while editing, so a drag on a non-editing card moves it instead of selecting text.
 struct BoardCardView: View {
@@ -153,14 +153,6 @@ struct BoardCardView: View {
             if extending || toggling || !isSelected {
               board.select(card.id, extending: extending, toggling: toggling)
             }
-          },
-          onClick: { modifiers in
-            // Writing is the default: a plain click on a text card places the caret — no
-            // select-first ritual, no object chrome. Shapes keep click-to-select; ⇧/⌘ clicks
-            // stay pure selection for multi-select.
-            guard isTextElement, !card.locked,
-                  !modifiers.contains(.shift), !modifiers.contains(.command) else { return }
-            enterEditing()
           },
           onDoubleClick: enterEditing,
           onDragChanged: updateMovePreview,
@@ -851,7 +843,6 @@ private final class CanvasImageCache {
 
 private struct CardPointerCatcher: NSViewRepresentable {
   var onPress: (EventModifiers) -> Void
-  var onClick: (EventModifiers) -> Void
   var onDoubleClick: () -> Void
   var onDragChanged: (CGSize) -> Void
   var onDragEnded: (CGSize) -> Void
@@ -869,7 +860,6 @@ private struct CardPointerCatcher: NSViewRepresentable {
   private var callbacks: CatcherView.Callbacks {
     CatcherView.Callbacks(
       onPress: onPress,
-      onClick: onClick,
       onDoubleClick: onDoubleClick,
       onDragChanged: onDragChanged,
       onDragEnded: onDragEnded
@@ -879,8 +869,6 @@ private struct CardPointerCatcher: NSViewRepresentable {
   final class CatcherView: NSView {
     struct Callbacks {
       var onPress: (EventModifiers) -> Void = { _ in }
-      /// A release with no real drag — a plain click (fired with the release's modifiers).
-      var onClick: (EventModifiers) -> Void = { _ in }
       var onDoubleClick: () -> Void = {}
       var onDragChanged: (CGSize) -> Void = { _ in }
       var onDragEnded: (CGSize) -> Void = { _ in }
@@ -925,12 +913,10 @@ private struct CardPointerCatcher: NSViewRepresentable {
     override func mouseUp(with event: NSEvent) {
       guard dragStart != nil else { return }
       dragStart = nil
-      let clicked = !passedThreshold
       passedThreshold = false
       callbacks.onDragEnded(lastTranslation)
       callbacks.onDragChanged(.zero)
       lastTranslation = .zero
-      if clicked { callbacks.onClick(EventModifiers(event.modifierFlags)) }
     }
 
     // A non-editing card sits above the board's scroll surface, so without these the cursor

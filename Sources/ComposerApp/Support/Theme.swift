@@ -161,9 +161,10 @@ enum WindowChrome {
   /// Uniform distance every floating control keeps from the window edges (the board pill clears the
   /// traffic lights instead). One number so nothing sits a different distance from its edge.
   static let edgeInset: CGFloat = 16
-  /// Left offset for the top-left board pill: the traffic lights (repositioned onto the control
-  /// row's centerline, starting at `edgeInset`) end at 16 + 3×14 + 2×6 = 70; +12 breathing room.
-  static let trafficLightInset: CGFloat = 82
+  /// Left offset for the top-left board pill. The traffic lights are repositioned onto the same
+  /// row starting at `edgeInset`, but AppKit's practical hit area is wider than the visible dots.
+  /// Keep BonsAI's picker in a separate lane so its hover/click target never fights window controls.
+  static let trafficLightInset: CGFloat = 132
   /// EVERY chrome glyph: one size, one weight. No inline `.font(.system(size: …))` in chrome views.
   static let iconSize: CGFloat = 17
   static var iconFont: Font { .system(size: iconSize, weight: .medium) }

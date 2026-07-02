@@ -1,11 +1,12 @@
 import Foundation
 
-/// The board new users see on first launch. The exact board is shipped in the app bundle as
-/// `WelcomeBoard.json` (a serialized `[CardState]`); `DumpStore` seeds it into the store once, on a
-/// fresh install. The mascot image card stores a `bundle:` sentinel in the JSON because its real
-/// path is per-machine — on seed we materialize the bundled PNG into Attachments (where user
-/// images live) and point the card at that copy.
+/// The board users see as the bundled onboarding canvas. The exact board is shipped in the app
+/// bundle as `WelcomeBoard.json` (a serialized `[CardState]`). The mascot image card stores a
+/// `bundle:` sentinel in the JSON because its real path is per-machine - on install we materialize
+/// the bundled PNG into Attachments (where user images live) and point the card at that copy.
 enum WelcomeBoard {
+  static let title = "Welcome Canvas"
+
   private static let mascotSentinel = "bundle:welcome-companion.png"
   private static let mascotFileName = "welcome-companion.png"
 
@@ -39,16 +40,19 @@ enum WelcomeBoard {
     }
   }
 
-  /// Copy the bundled mascot into Attachments (idempotent) and return its on-disk path.
+  /// Copy the bundled mascot into Attachments and return its on-disk path.
+  /// Always refresh the copy: older welcome boards may point at a stale or missing attachment.
   private static func installMascot() -> String? {
     guard let source = Bundle.appResources.url(forResource: "welcome-companion", withExtension: "png") else { return nil }
     let directory = attachmentsDirectory
     let destination = directory.appendingPathComponent(mascotFileName)
+    let temporary = directory.appendingPathComponent("\(mascotFileName).tmp")
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      if !FileManager.default.fileExists(atPath: destination.path) {
-        try FileManager.default.copyItem(at: source, to: destination)
-      }
+      if FileManager.default.fileExists(atPath: temporary.path) { try FileManager.default.removeItem(at: temporary) }
+      try FileManager.default.copyItem(at: source, to: temporary)
+      if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
+      try FileManager.default.moveItem(at: temporary, to: destination)
     } catch {
       UserFacingError.report(error, while: "Installing Composer’s welcome-board image")
       return nil
