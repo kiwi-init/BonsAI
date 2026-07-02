@@ -31,6 +31,13 @@ under the new version heading.
   `--ignore-user-config` (to protect canvas MCP startup), which had been dropping it — and the
   one-shot Codex path gained `--skip-git-repo-check` so Refine / Compile work from any folder.
 
+### Changed
+- **Runs on macOS 14 (Sonoma) and up.** The minimum was lowered from macOS 26 (Tahoe); the board and
+  every core feature work throughout. Tahoe-only extras — the Apple Intelligence semantic linter and
+  screenshot cleanup, plus the Liquid Glass look — stay gated and quietly turn themselves off below
+  macOS 26 or when Apple Intelligence is unavailable, so nothing shows a broken control or a
+  missing-glyph icon on older systems.
+
 ### Fixed
 - **Canvas MCP registers reliably for strict clients.** The MCP handshake (`initialize` /
   `tools/list` / `ping`) is now answered off the main thread; only board mutations hop to it. An
@@ -40,6 +47,10 @@ under the new version heading.
   saved snapshot verbatim, so an engine added in an update (OpenCode) stayed stuck on "Checking…" —
   invisible to the agent picker and refine bar — until you hit Recheck. It now detects any engine the
   snapshot doesn't cover on launch.
+- **Japanese and other IME input no longer breaks in the canvas editor.** While composing marked text
+  (Japanese / Chinese / Korean, or dead-key accents), the editor was reformatting the half-composed
+  text and could steal the Return that confirms a candidate, so characters dropped or the wrong
+  reading was committed. Composition is now left untouched until it commits.
 
 ## [1.2.2] - 2026-06-30
 
