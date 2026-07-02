@@ -30,8 +30,10 @@ struct BoardCardView: View {
   /// committed on Return / click-away. Esc reverts it; a blank commit prunes the card.
   @State private var equationDraft = ""
   @FocusState private var equationFocused: Bool
-  /// True only when the press landed on an already-selected card — so the first click on an
-  /// unselected card just selects it (and a drag pans/does nothing), and you move it on the next.
+  /// True when a plain (unmodified) press armed this card for a same-gesture move: one press then
+  /// drag both selects (if needed) and moves the card, no separate "click to select, click again to
+  /// move" step. A modified press (shift/command toggles selection) leaves this false so the drag
+  /// doesn't move the card.
   @State private var armedForMove = false
 
   /// The content's corner radius, so the selection ring hugs each element shape correctly
@@ -55,6 +57,10 @@ struct BoardCardView: View {
   private var isEquationElement: Bool { card.elementKind == .equation }
   /// An empty text card is just a place to write, not a placed object — so it shows no chrome.
   private var isEmptyText: Bool { isTextElement && interaction.text.trimmed.isEmpty }
+  /// Suppress chrome (ring, handles, delete ✕) on an empty text card ONLY while it's being edited —
+  /// a bare writing caret needs no box. Once merely selected (e.g. picked by marquee), an empty text
+  /// card must show its selection chrome so it's visibly deletable rather than an invisible ghost.
+  private var suppressEmptyChrome: Bool { isEmptyText && isEditing }
 
   /// The frame to draw right now — base frame plus any in-flight move or resize.
   private var liveFrame: CGRect {
@@ -100,6 +106,7 @@ struct BoardCardView: View {
         FreeWriteEditor(
           text: $interaction.text,
           initialAttributedText: interaction.attributedSnapshot,
+          initialInk: interaction.ink,
           placeholder: "Brain dump\u{2026}",
           onCountChange: { interaction.count = $0 },
           onSelectionChange: { interaction.selection = $0 },
@@ -121,6 +128,7 @@ struct BoardCardView: View {
           },
           boardContext: { board.lintContext(excluding: card.id) },
           definedVariables: { board.definedVariableNames },
+          cardTint: { card.tint },
           mentions: interaction.mentions,
           appSearch: interaction.appSearch,
           controller: interaction.controller,
@@ -146,7 +154,7 @@ struct BoardCardView: View {
         // the chip renderer can rebuild the styled chips — `interaction.text` is the visible
         // string, where a chip has already collapsed to its bare label. Fonts/padding scale with
         // zoom so the text is laid out at screen size (crisp), not stretched.
-        CanvasElementContent(card: card, text: interaction.plainText, definedVars: board.definedVariableNames, failedCommands: board.failedShellCommands, zoom: zoom)
+        CanvasElementContent(card: card, text: interaction.plainText, ink: board.ink(for: card), definedVars: board.definedVariableNames, failedCommands: board.failedShellCommands, zoom: zoom)
           .padding(.horizontal, (isTextElement ? 16 : 0) * zoom)
           .padding(.vertical, (isTextElement ? 18 : 0) * zoom)
           .allowsHitTesting(false)
@@ -159,13 +167,14 @@ struct BoardCardView: View {
         // single/double tap recognizers wait out the double-click interval first.
         CardPointerCatcher(
           onPress: { modifiers in
-            let extending = modifiers.contains(.shift)
-            let toggling = modifiers.contains(.command)
+            // Shift- and Command-click both TOGGLE this card's membership in the selection (shift no
+            // longer pure-unions), so clicking an already-picked card in a multi-selection drops it.
+            let toggling = modifiers.contains(.shift) || modifiers.contains(.command)
             // A plain press selects (if needed) AND arms the move, so one press + drag moves the
             // card in a single gesture. The 4px drag dead-zone keeps a plain click from nudging it.
-            armedForMove = !extending && !toggling
-            if extending || toggling || !isSelected {
-              board.select(card.id, extending: extending, toggling: toggling)
+            armedForMove = !toggling
+            if toggling || !isSelected {
+              board.select(card.id, toggling: toggling)
             }
           },
           onDoubleClick: enterEditing,
@@ -178,15 +187,18 @@ struct BoardCardView: View {
   }
 
   /// Recolor the LIVE editor's text to the card's tint: every run except chips (marked with
-  /// `.mentionToken`) takes the ink, and the typing attributes follow so new text matches.
+  /// `.mentionToken`) and per-range ink (marked with `.inkSlot`) takes the ink, and the typing
+  /// attributes follow so new text matches. Inked spans keep their own color so a whole-card tint
+  /// never stomps range ink.
   private func applyEditorTint() {
     guard isEditing, isTextElement,
           let tv = interaction.controller.coordinator?.textView, let storage = tv.textStorage else { return }
     let color = Theme.tintColor(card.tint) ?? Theme.nsBodyText
     let full = NSRange(location: 0, length: storage.length)
     storage.beginEditing()
-    storage.enumerateAttribute(.mentionToken, in: full) { value, range, _ in
-      if value == nil { storage.addAttribute(.foregroundColor, value: color, range: range) }
+    storage.enumerateAttributes(in: full, options: []) { attrs, range, _ in
+      guard attrs[.mentionToken] == nil, attrs[.inkSlot] == nil else { return }
+      storage.addAttribute(.foregroundColor, value: color, range: range)
     }
     storage.endEditing()
     tv.typingAttributes[.foregroundColor] = color
@@ -196,7 +208,7 @@ struct BoardCardView: View {
   private var shapeLabelEditor: some View {
     TextField("Label", text: $interaction.text)
       .textFieldStyle(.plain)
-      .font(.system(size: 15, weight: .medium))
+      .font(ComposerPreferences.appSwiftUIFont(size: 15, weight: .medium))
       .foregroundStyle(tint ?? Theme.Palette.body)
       .multilineTextAlignment(.center)
       .padding(.horizontal, 10)
@@ -288,8 +300,17 @@ struct BoardCardView: View {
 
   private func commitMove(_ translation: CGSize) {
     moveDelta = .zero
-    guard armedForMove, !card.locked else { return }
-    guard hypot(translation.width, translation.height) >= 1 else { return }
+    guard armedForMove else { return }
+    // A plain click (no real drag) on a card inside a multi-selection collapses the selection to
+    // just this card — resolved here on mouse-UP, so a genuine group drag (translation ≥ 4px) still
+    // moves the whole group. The press left the group intact precisely so this decision waits.
+    if hypot(translation.width, translation.height) < 4 {
+      if board.selectedCardIDs.count > 1, board.selectedCardIDs.contains(card.id) {
+        board.select(card.id)
+      }
+      return
+    }
+    guard !card.locked else { return }
     let boardDelta = CGSize(width: translation.width / zoom, height: translation.height / zoom)
     if board.selectedCardIDs.contains(card.id), board.selectedCardIDs.count > 1 {
       board.finishMovePreview(commit: true)
@@ -321,7 +342,7 @@ struct BoardCardView: View {
     // An empty text card stays bare — a writing spot, not a boxed object. While you type into
     // a text card it's chromeless too; the ring returns only once it's a placed object you
     // select to move or resize. Shapes keep their ring while editing.
-    if (isSelected || isEditing) && !isEmptyText {
+    if (isSelected || isEditing) && !suppressEmptyChrome {
       let showRing = !isTextElement || (isSelected && !isEditing)
       // Image cards draw their own rounded border, so a ring sitting `selectionGap` px outside reads
       // as an ugly double border with a gap. Hug the image's own edge instead — a single clean
@@ -345,6 +366,11 @@ struct BoardCardView: View {
               handleDot
                 .position(handlePoint(corner, in: geo.size))
                 .gesture(resizeGesture(corner))
+                // A diagonal resize cursor over each corner handle, restored on exit. Pushing/popping
+                // keeps the cursor correct even as SwiftUI reuses the handle views across cards.
+                .onHover { inside in
+                  if inside { corner.resizeCursor.push() } else { NSCursor.pop() }
+                }
             }
           }
         }
@@ -414,7 +440,7 @@ struct BoardCardView: View {
 
   @ViewBuilder
   private var deleteButton: some View {
-    if isSelected && !isEditing && !card.locked && !isEmptyText && selectable {
+    if isSelected && !isEditing && !card.locked && !suppressEmptyChrome && selectable {
       Button(action: { board.delete(card.id) }) {
         Image(systemName: "xmark")
           .font(.system(size: 9, weight: .bold))
@@ -458,6 +484,8 @@ private struct CanvasElementContent: View {
   let card: CardState
   /// Serialized plain text (`@github`, `[image: …]`, literal prose) for text cards.
   let text: String
+  /// Per-range text ink over `text` (serialized-offset spans), resolved to colors at render.
+  var ink: [InkRun] = []
   /// Board-scoped variable names, for styling `$name` references defined in other cards.
   var definedVars: Set<String> = []
   /// Commands that failed on the last copy — their tokens render amber.
@@ -480,15 +508,20 @@ private struct CanvasElementContent: View {
           Group {
             if text.trimmed.isEmpty {
               Text("Brain dump\u{2026}")
-                .font(.system(size: Theme.Typography.body.pointSize * zoom))
+                .font(ComposerPreferences.appSwiftUIFont(size: Theme.Typography.body.pointSize * zoom))
                 .lineSpacing(Theme.Typography.bodyLineSpacing * zoom)
                 .foregroundStyle(Theme.Palette.placeholder)
             } else {
-              ComposerChipText(tint: tint, plain: text, definedVars: definedVars, failedCommands: failedCommands, zoom: zoom)
+              ComposerChipText(tint: tint, plain: text, ink: ink, definedVars: definedVars, failedCommands: failedCommands, zoom: zoom)
             }
           }
+          // The card height was measured by the AppKit editor at 100% zoom, but this static text
+          // is laid out by SwiftUI at fontSize × zoom — the two don't agree pixel-for-pixel and
+          // wrapping isn't scale-linear, so a fitted height can fall a line short at some zooms.
+          // Let the text take the height it needs instead of clipping: a few px of overflow past
+          // the card edge beats silently dropping the last line.
+          .fixedSize(horizontal: false, vertical: true)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-          .clipped()
         case .rectangle:
           ShapeBox(kind: .rectangle, tint: tint)
         case .ellipse:
@@ -546,7 +579,8 @@ private struct NodeLabel: View {
 
   var body: some View {
     Text(text)
-      .font(.system(size: 14 * zoom, weight: .semibold))
+      // Must match the face `BoardViewModel.fittedShapeSize` measures with, or boxes mis-fit.
+      .font(ComposerPreferences.appSwiftUIFont(size: 14 * zoom, weight: .semibold))
       .multilineTextAlignment(.center)
       .lineLimit(5)
       .minimumScaleFactor(0.82)
@@ -571,6 +605,8 @@ private struct ComposerChipText: View {
   /// Base ink override (the card's tint); chips keep their brand colors.
   var tint: Color? = nil
   let plain: String
+  /// Per-range text ink (serialized-offset spans); each run recolors its characters over the base.
+  var ink: [InkRun] = []
   /// Board-scoped variable names, so a `$name` reference styles even when defined in another card.
   var definedVars: Set<String> = []
   /// Commands that failed on the last copy — their `$(…)` tokens render amber instead of green.
@@ -580,7 +616,7 @@ private struct ComposerChipText: View {
 
   var body: some View {
     composed
-      .font(.system(size: Theme.Typography.body.pointSize * zoom))
+      .font(ComposerPreferences.appSwiftUIFont(size: Theme.Typography.body.pointSize * zoom))
       .lineSpacing(Theme.Typography.bodyLineSpacing * zoom)
       .foregroundStyle(tint ?? Theme.Palette.body)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -607,7 +643,7 @@ private struct ComposerChipText: View {
     func gapRun(_ range: NSRange) -> Text {
       Text(MarkdownStyle.rendered(
         slice: ns.substring(with: range), sliceRange: range, spans: markdown,
-        baseSize: Theme.Typography.body.pointSize, zoom: zoom))
+        baseSize: Theme.Typography.body.pointSize, zoom: zoom, ink: ink))
     }
 
     var out = Text(verbatim: "")
@@ -690,7 +726,7 @@ private struct CanvasLabel: View {
 
   var body: some View {
     Text(text)
-      .font(.system(size: 14 * zoom, weight: .semibold))
+      .font(ComposerPreferences.appSwiftUIFont(size: 14 * zoom, weight: .semibold))
       .lineLimit(2)
       .multilineTextAlignment(.center)
       .foregroundStyle(Theme.Palette.body)
@@ -803,10 +839,21 @@ private struct FreehandShape: View {
 private struct ImageObjectPlaceholder: View {
   let path: String?
   @State private var image: NSImage?
+  /// When set (offscreen PNG export), image decoding is synchronous: `ImageRenderer` never runs
+  /// the async `.task`, so the on-canvas placeholder would be captured instead of the picture.
+  /// The provider hands back a fully-decoded `NSImage` for `path` on the spot.
+  @Environment(\.exportImageProvider) private var exportImageProvider
+
+  /// The image to draw. During export it resolves synchronously from the provider; on the live
+  /// canvas it's the async-loaded thumbnail held in `@State`.
+  private var resolvedImage: NSImage? {
+    if let exportImageProvider, let path { return exportImageProvider(path) }
+    return image
+  }
 
   var body: some View {
     Group {
-      if let image {
+      if let image = resolvedImage {
       Image(nsImage: image)
         .resizable()
         .scaledToFill()
@@ -840,12 +887,28 @@ private struct ImageObjectPlaceholder: View {
     // card reloaded from a saved board (or culled and re-added while panning) reliably re-decodes,
     // instead of the old `.onAppear` + stored-path guard silently dropping the result.
     .task(id: path) {
+      // Export resolves synchronously through the provider — no async decode needed.
+      guard exportImageProvider == nil else { return }
       guard let path else { image = nil; return }
       let loaded: NSImage? = await withCheckedContinuation { continuation in
         CanvasImageCache.shared.load(path: path) { continuation.resume(returning: $0) }
       }
       if !Task.isCancelled { image = loaded }
     }
+  }
+}
+
+/// Offscreen-export hook: when present, image cards resolve their picture synchronously from this
+/// closure instead of the async `CanvasImageCache`, so a one-shot `ImageRenderer` capture shows the
+/// real image rather than the loading placeholder. Nil on the live canvas — normal async loading.
+private struct ExportImageProviderKey: EnvironmentKey {
+  static let defaultValue: ((String) -> NSImage?)? = nil
+}
+
+extension EnvironmentValues {
+  var exportImageProvider: ((String) -> NSImage?)? {
+    get { self[ExportImageProviderKey.self] }
+    set { self[ExportImageProviderKey.self] = newValue }
   }
 }
 
@@ -987,7 +1050,7 @@ private final class CanvasImageCache {
   }
 
   private static func decodeThumbnail(at path: String) -> (image: NSImage, cost: Int)? {
-    let url = URL(fileURLWithPath: path)
+    guard let url = AssetStore.resolve(path) else { return nil }
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
     let options: [CFString: Any] = [
       kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -1046,6 +1109,13 @@ private struct CardPointerCatcher: NSViewRepresentable {
     private var passedThreshold = false
 
     override var isFlipped: Bool { true }
+
+    // While Space is held the whole board pans, starting anywhere — including over a card. Going
+    // transparent to hit-testing here lets the press fall through to the viewport's pan handler
+    // instead of this catcher grabbing it (which killed space-pan wherever a card sat).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+      CanvasKeyState.shared.isSpaceDown ? nil : super.hitTest(point)
+    }
 
     override func mouseDown(with event: NSEvent) {
       dragStart = event.locationInWindow
@@ -1107,6 +1177,23 @@ private enum Corner: CaseIterable, Hashable {
     case .bottomLeading: CGPoint(x: 0, y: size.height)
     case .bottomTrailing: CGPoint(x: size.width, y: size.height)
     }
+  }
+
+  /// The diagonal resize cursor for this corner. `NSCursor.frameResize(position:directions:)` is
+  /// macOS 15+, so older systems fall back to a crosshair rather than the (nonexistent) diagonal.
+  var resizeCursor: NSCursor {
+    if #available(macOS 15.0, *) {
+      let position: NSCursor.FrameResizePosition = {
+        switch self {
+        case .topLeading: .topLeft
+        case .topTrailing: .topRight
+        case .bottomLeading: .bottomLeft
+        case .bottomTrailing: .bottomRight
+        }
+      }()
+      return NSCursor.frameResize(position: position, directions: .all)
+    }
+    return .crosshair
   }
 }
 
