@@ -182,7 +182,7 @@ struct BoardCardView: View {
   private var shapeLabelEditor: some View {
     TextField("Label", text: $interaction.text)
       .textFieldStyle(.plain)
-      .font(.system(size: 15, weight: .medium))
+      .font(ComposerPreferences.appSwiftUIFont(size: 15, weight: .medium))
       .foregroundStyle(tint ?? Theme.Palette.body)
       .multilineTextAlignment(.center)
       .padding(.horizontal, 10)
@@ -417,7 +417,7 @@ private struct CanvasElementContent: View {
           Group {
             if text.trimmed.isEmpty {
               Text("Brain dump\u{2026}")
-                .font(.system(size: Theme.Typography.body.pointSize * zoom))
+                .font(ComposerPreferences.appSwiftUIFont(size: Theme.Typography.body.pointSize * zoom))
                 .lineSpacing(Theme.Typography.bodyLineSpacing * zoom)
                 .foregroundStyle(Theme.Palette.placeholder)
             } else {
@@ -481,7 +481,8 @@ private struct NodeLabel: View {
 
   var body: some View {
     Text(text)
-      .font(.system(size: 14 * zoom, weight: .semibold))
+      // Must match the face `BoardViewModel.fittedShapeSize` measures with, or boxes mis-fit.
+      .font(ComposerPreferences.appSwiftUIFont(size: 14 * zoom, weight: .semibold))
       .multilineTextAlignment(.center)
       .lineLimit(5)
       .minimumScaleFactor(0.82)
@@ -515,7 +516,7 @@ private struct ComposerChipText: View {
 
   var body: some View {
     composed
-      .font(.system(size: Theme.Typography.body.pointSize * zoom))
+      .font(ComposerPreferences.appSwiftUIFont(size: Theme.Typography.body.pointSize * zoom))
       .lineSpacing(Theme.Typography.bodyLineSpacing * zoom)
       .foregroundStyle(tint ?? Theme.Palette.body)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -625,7 +626,7 @@ private struct CanvasLabel: View {
 
   var body: some View {
     Text(text)
-      .font(.system(size: 14 * zoom, weight: .semibold))
+      .font(ComposerPreferences.appSwiftUIFont(size: 14 * zoom, weight: .semibold))
       .lineLimit(2)
       .multilineTextAlignment(.center)
       .foregroundStyle(Theme.Palette.body)
