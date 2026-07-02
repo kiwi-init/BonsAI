@@ -46,6 +46,11 @@ struct ComposerCanvas: View {
   /// only grows the surface downward, never sideways. (The board picker uses the fixed
   /// `WindowChrome.boardPillWidth` instead — its label length varies with the board name.)
   @State private var exportRestWidth: CGFloat = 0
+  /// Inline rename of the CURRENT board, entered from the title row's secondary-click menu.
+  /// While editing, the picker pins open so hover-out can't close it mid-edit.
+  @State private var renamingCurrentBoard = false
+  @State private var currentBoardDraft = ""
+  @FocusState private var currentBoardNameFocused: Bool
   /// The card that held the caret when the palette was summoned, captured before the palette's
   /// search field steals first responder — so a cancel can hand editing back to it.
   @State private var paletteReturnCardID: UUID?
@@ -459,6 +464,62 @@ struct ComposerCanvas: View {
     return name.count > 13 ? String(name.prefix(13)) + "…" : name
   }
 
+  /// The picker's title row: the current board's trimmed name. A secondary click pops the
+  /// management options — Rename swaps the label for an inline field; Delete removes the current
+  /// board (hidden while it's the only one). This is the ONLY home for current-board management:
+  /// the expanded list deliberately shows just the other boards.
+  @ViewBuilder
+  private func currentBoardTitleRow(canDelete: Bool) -> some View {
+    if renamingCurrentBoard {
+      TextField("Board name", text: $currentBoardDraft)
+        .textFieldStyle(.plain)
+        .font(WindowChrome.labelFont)
+        .foregroundStyle(Theme.Palette.body)
+        .multilineTextAlignment(.center)
+        .focused($currentBoardNameFocused)
+        .onSubmit(commitCurrentBoardRename)
+        .onExitCommand(perform: cancelCurrentBoardRename)
+        .frame(width: WindowChrome.boardPillWidth, height: WindowChrome.controlHeight)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.Palette.rowFill))
+        // Defer a runloop tick: focusing straight from onAppear can miss while the row swaps in.
+        .onAppear { DispatchQueue.main.async { currentBoardNameFocused = true } }
+        // Clicking away (focus leaves the field) commits, so the rename isn't lost.
+        .onChange(of: currentBoardNameFocused) { _, focused in if !focused { commitCurrentBoardRename() } }
+    } else {
+      Text(boardPickerTitle)
+        .font(WindowChrome.labelFont)
+        .foregroundStyle(Theme.Palette.body)
+        .lineLimit(1)
+        .frame(width: WindowChrome.boardPillWidth, height: WindowChrome.controlHeight)
+        .contentShape(Rectangle())
+        .contextMenu {
+          Button("Rename Board") { beginCurrentBoardRename() }
+          if canDelete, let id = store.currentID {
+            Button("Delete Board", role: .destructive) { deleteBoard(id) }
+          }
+        }
+    }
+  }
+
+  private func beginCurrentBoardRename() {
+    currentBoardDraft = currentBoardName
+    renamingCurrentBoard = true
+    boardPickerPinned = true
+  }
+
+  private func commitCurrentBoardRename() {
+    guard renamingCurrentBoard else { return }   // guard so focus-loss doesn't re-fire after cancel
+    renamingCurrentBoard = false
+    boardPickerPinned = false
+    let name = currentBoardDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let id = store.currentID, !name.isEmpty { renameBoard(id, to: name) }
+  }
+
+  private func cancelCurrentBoardRename() {
+    renamingCurrentBoard = false
+    boardPickerPinned = false
+  }
+
   /// The board picker is ONE glass container. At rest it is just the current board's name; on
   /// hover the same surface grows downward into the board manager — the OTHER boards with
   /// rename/delete (the title row already names the current one), plus a New board row. No second
@@ -468,11 +529,7 @@ struct ComposerCanvas: View {
   private var boardPickerMenu: some View {
     let others = store.dumps.filter { $0.persistentModelID != store.currentID }
     return VStack(alignment: .leading, spacing: WindowChrome.itemSpacing) {
-      Text(boardPickerTitle)
-        .font(WindowChrome.labelFont)
-        .foregroundStyle(Theme.Palette.body)
-        .lineLimit(1)
-        .frame(width: WindowChrome.boardPillWidth, height: WindowChrome.controlHeight)
+      currentBoardTitleRow(canDelete: !others.isEmpty)
 
       if boardPickerOpen {
         // Same fixed width as the rest label so the surface only grows below.
