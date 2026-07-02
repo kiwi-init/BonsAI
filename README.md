@@ -2,7 +2,8 @@
 
 **A bucket for thoughts and ideas — and the shortest path from a thought to a well-formed prompt.**
 
-<img width="3420" height="2224" alt="image" src="https://github.com/user-attachments/assets/eca1bad8-7cdd-4655-a342-9483406740db" />
+<img width="3420" height="2224" alt="image" src="https://github.com/user-attachments/assets/19493af9-6f0b-4541-bbde-a432f65e5037" />
+
 
 BonsAI is a small, native macOS app. It gives you one resizable canvas where you
 capture half-formed ideas as cards, sketch relationships, write with Markdown,
@@ -28,9 +29,19 @@ longer, it probably doesn't belong here.
 - **Ground the board with connector chips.** Use `@finder`, `@browser`,
   `@github`, `@context7`, `@linear`, `@notion`, `@sentry`, `@figma`, and `@xcode`
   to attach the context an agent would otherwise have to ask you for.
+
+<img width="858" height="574" alt="image" src="https://github.com/user-attachments/assets/947388a8-8c77-4310-b77a-b8a426c5a73d" />
+<img width="972" height="850" alt="image" src="https://github.com/user-attachments/assets/133dfa15-18c7-445a-8282-604120c6957f" />
+
+
+  
 - **Work with an agent on the board.** The chat agent can run through Claude,
   Codex, or OpenCode, reads the same canvas graph you see, and writes changes
   back through BonsAI's loopback-only canvas API.
+
+<img width="2890" height="1828" alt="image" src="https://github.com/user-attachments/assets/293000c5-1802-4e5d-a6ec-8548aa993266" />
+
+  
 
 ## Stars
 
