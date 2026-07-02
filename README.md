@@ -4,18 +4,33 @@
 
 <img width="3420" height="2224" alt="image" src="https://github.com/user-attachments/assets/eca1bad8-7cdd-4655-a342-9483406740db" />
 
-BonsAI is a small, native macOS app. It gives you a board of cards where you
-capture half-formed ideas, pull in just-enough context with **connectors**
-(your files, open tabs, library docs, tickets, designs, errors…), and an
-invisible **on-device semantic linter** quietly flags the spots that are too
-vague for an AI agent to act on. When a card is ready, you copy it out into
-whatever AI tool you drive next.
+BonsAI is a small, native macOS app. It gives you one resizable canvas where you
+capture half-formed ideas as cards, sketch relationships, write with Markdown,
+pull in just-enough context with **connectors** (your files, open tabs, library
+docs, tickets, designs, errors...), and let an in-canvas agent read or reshape
+the board live. An invisible **on-device semantic linter** quietly flags the
+spots that are too vague for an AI agent to act on. When a board is ready, you
+can copy a self-contained prompt out or keep working directly with the agent on
+the canvas.
 
 The pillar behind every design decision: **remove friction between having a
 thought and getting it into a coding agent.** If a feature makes that path
 longer, it probably doesn't belong here.
 
 ---
+
+## What you do in BonsAI
+
+- **Write and structure ideas.** Text cards support Markdown headings, emphasis,
+  code, quotes, lists, and checkboxes while preserving plain text for agents.
+- **Sketch the shape of the problem.** Draw rectangles, ellipses, diamonds,
+  arrows, and freehand marks; hold Shift to keep shapes proportional.
+- **Ground the board with connector chips.** Use `@finder`, `@browser`,
+  `@github`, `@context7`, `@linear`, `@notion`, `@sentry`, `@figma`, and `@xcode`
+  to attach the context an agent would otherwise have to ask you for.
+- **Work with an agent on the board.** The chat agent can run through Claude,
+  Codex, or OpenCode, reads the same canvas graph you see, and writes changes
+  back through BonsAI's loopback-only canvas API.
 
 ## Stars
 
@@ -79,12 +94,16 @@ Full write-up: [docs/semanticlinter.md](docs/semanticlinter.md).
 
 ## Agent & engines
 
-BonsAI ships no model of its own. **Refine** and **Compile** shell out to a
-coding-agent CLI you already have (`claude -p`), and the in-canvas **chat agent**
-spawns `claude` in streaming mode with a loopback MCP server attached, so it can
-read and reshape the board live as you talk. Apple Intelligence is on-device and
-powers the linter only. The engine layer is built to be multi-engine — adding
-another agent CLI is a small, well-scoped change.
+BonsAI ships no model of its own. **Refine**, **Compile**, and the in-canvas
+**chat agent** run through coding-agent CLIs you already use: Claude Code, Codex,
+and OpenCode. Refine and Compile use one-shot CLI calls; the chat agent uses each
+engine's streaming mode with the loopback canvas MCP server attached, so it can
+read and reshape the board live as you talk.
+
+Settings ▸ Runtime controls which engines are enabled and available. Settings ▸
+Models, plus the picker on the Agent panel, choose the chat provider and model
+where the underlying CLI supports it. Apple Intelligence is separate, fully
+on-device, and powers the semantic linter only.
 
 - [docs/agent-engines.md](docs/agent-engines.md) — the engines, how each is
   invoked, how one gets picked, and how to add another.
@@ -94,12 +113,12 @@ another agent CLI is a small, well-scoped change.
 
 ## Architecture notes
 
-BonsAI is a normal Dock app built on AppKit + SwiftUI. The board, the
-Agent/Settings dock, and the toolbar are **deliberately separate, coordinated
-windows** with a **screen-relative** layout — not a single stacked view. That
-composition is load-bearing and easy to "clean up" by accident, so it's
-documented and guarded in [CLAUDE.md](CLAUDE.md) and [AGENTS.md](AGENTS.md).
-Read those before touching panel geometry.
+BonsAI is a normal Dock app built on AppKit + SwiftUI. In 1.3, the workspace is
+one standard, resizable macOS window with floating canvas chrome: board switcher,
+tools, zoom, grounding, bottom command bar, and in-canvas Agent and Settings
+overlays. That composition is load-bearing and easy to "clean up" by accident,
+so it's documented and guarded in [CLAUDE.md](CLAUDE.md) and [AGENTS.md](AGENTS.md).
+Read those before touching window or canvas-chrome geometry.
 
 ## Contributing
 
