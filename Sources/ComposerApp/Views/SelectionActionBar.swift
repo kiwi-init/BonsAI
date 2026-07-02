@@ -4,21 +4,33 @@ import SwiftUI
 struct SelectionActionBar: View {
   var isWorking: Bool
   var onRefine: (HeadlessEngine) -> Void
-  var onCopy: () -> Void
+  /// Markdown formatting for the selection (heading/bold/italic/code/quote).
+  var onFormat: (MarkdownStyle.Action) -> Void
+  /// The editing card's current tint slot; picking a swatch re-inks the whole card.
+  var currentTint: Int?
+  var onTint: (Int?) -> Void
+
+  /// The color picker rides collapsed (one swatch) and expands in place on click.
+  @State private var tintExpanded = false
 
   @AppStorage(EnginePreferences.claudeEnabledKey) private var claudeEnabled = true
   @AppStorage(EnginePreferences.codexEnabledKey) private var codexEnabled = true
+  @AppStorage(EnginePreferences.opencodeEnabledKey) private var opencodeEnabled = true
   @ObservedObject private var capabilities = EngineCapabilityStore.shared
   @State private var shown = false
 
-  private var enabledEngines: [HeadlessEngine] {
-    HeadlessEngine.allCases.filter { engine in
-      let enabled = switch engine {
-      case .claude: claudeEnabled
-      case .codex: codexEnabled
-      }
-      return enabled && capabilities.isAvailable(engine)
+  /// Read through the observed `@AppStorage` toggles (not `EnginePreferences.isEnabled`) so the bar
+  /// re-renders the moment a toggle flips in Settings.
+  private func isEnabled(_ engine: HeadlessEngine) -> Bool {
+    switch engine {
+    case .claude: claudeEnabled
+    case .codex: codexEnabled
+    case .opencode: opencodeEnabled
     }
+  }
+
+  private var enabledEngines: [HeadlessEngine] {
+    HeadlessEngine.allCases.filter { isEnabled($0) && capabilities.isAvailable($0) }
   }
 
   var body: some View {
@@ -43,7 +55,31 @@ struct SelectionActionBar: View {
             .frame(height: Theme.Size.actionBarItemHeight)
         }
         Divider().frame(height: 16).opacity(0.35)
-        iconAction(icon: "doc.on.doc", help: "Copy self-contained text", run: onCopy)
+
+        // Markdown formatting — literal syntax in the plain text, styled live.
+        iconAction(icon: "textformat.size", help: "Heading  ·  cycles # / ## / ###") { onFormat(.heading) }
+        iconAction(icon: "bold", help: "Bold  ·  **text**") { onFormat(.bold) }
+        iconAction(icon: "italic", help: "Italic  ·  *text*") { onFormat(.italic) }
+        iconAction(icon: "chevron.left.forwardslash.chevron.right", help: "Code  ·  `text`") { onFormat(.code) }
+        iconAction(icon: "text.quote", help: "Quote  ·  > line") { onFormat(.quote) }
+
+        Divider().frame(height: 16).opacity(0.35)
+
+        // Text ink: collapsed to the current swatch; expands to the theme's slots on click.
+        if tintExpanded {
+          tintSwatch(nil)
+          ForEach(Theme.flavor.tints.indices, id: \.self) { slot in
+            tintSwatch(slot)
+          }
+        } else {
+          Button(action: { Haptics.tap(); withAnimation(.easeOut(duration: 0.14)) { tintExpanded = true } }) {
+            swatchCircle(for: currentTint, selected: false)
+              .frame(width: 26, height: Theme.Size.actionBarItemHeight)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(HoverButtonStyle())
+          .help("Text color")
+        }
       }
     }
     .padding(.horizontal, 5)
@@ -56,7 +92,7 @@ struct SelectionActionBar: View {
 
   private var unavailableEngineMessage: String {
     if enabledEngines.isEmpty {
-      if !claudeEnabled && !codexEnabled {
+      if HeadlessEngine.allCases.allSatisfy({ !isEnabled($0) }) {
         return "All engines disabled in Settings → Runtime"
       }
       return "No engines ready — open Settings → Runtime → Recheck"
@@ -77,6 +113,33 @@ struct SelectionActionBar: View {
     }
     .buttonStyle(HoverButtonStyle())
     .foregroundStyle(Theme.Palette.body)
+  }
+
+  private func swatchCircle(for slot: Int?, selected: Bool) -> some View {
+    let color = Theme.tintColor(slot).map { Color(nsColor: $0) } ?? Theme.Palette.body
+    return Circle()
+      .fill(color)
+      .frame(width: 13, height: 13)
+      .overlay(Circle().strokeBorder(Theme.Palette.panelHairline, lineWidth: 1))
+      .overlay(
+        Circle()
+          .strokeBorder(selected ? Theme.Palette.accent : Color.clear, lineWidth: 1.5)
+          .frame(width: 19, height: 19)
+      )
+  }
+
+  private func tintSwatch(_ slot: Int?) -> some View {
+    Button(action: {
+      Haptics.tap()
+      onTint(slot)
+      withAnimation(.easeOut(duration: 0.14)) { tintExpanded = false }
+    }) {
+      swatchCircle(for: slot, selected: currentTint == slot)
+        .frame(width: 22, height: Theme.Size.actionBarItemHeight)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(HoverButtonStyle())
+    .help(slot == nil ? "Default ink" : "Theme color \((slot ?? 0) + 1)")
   }
 
   @ViewBuilder

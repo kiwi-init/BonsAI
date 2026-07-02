@@ -58,6 +58,19 @@ extension Dump {
 @MainActor
 final class DumpStore: ObservableObject {
   static let shared = DumpStore()
+  private static let welcomeSeededKey = "composer.didSeedWelcomeBoard"
+  private static let welcomeBoard13InstalledKey = "composer.didInstallWelcomeBoard.1.3.0"
+  private static let previousWelcomeCardIDs: Set<UUID> = [
+    UUID(uuidString: "990EE873-F529-4CA0-BAC1-AD42237F85BE")!,
+    UUID(uuidString: "45AB0AE2-18DD-4DE0-8F47-77E1480A6066")!,
+    UUID(uuidString: "1144979D-8BEE-48FF-8C5C-4601937EF03F")!,
+    UUID(uuidString: "CC947873-A07D-4996-9737-2D0D29960507")!,
+    UUID(uuidString: "54F3F1BC-8559-4031-B109-A23CEE54C183")!,
+    UUID(uuidString: "8B247774-CA4D-4756-8780-4E4A6A1EDA74")!,
+    UUID(uuidString: "963EB88C-4950-48A7-AA07-944F7659F571")!,
+    UUID(uuidString: "0203037F-778F-486B-A432-39F7E45D9818")!,
+    UUID(uuidString: "21A24D7C-17E4-434F-96FE-C385C68E50C6")!,
+  ]
 
   let container: ModelContainer
   private var context: ModelContext { container.mainContext }
@@ -97,6 +110,7 @@ final class DumpStore: ObservableObject {
     }
     migrateLegacyNoteIfNeeded()
     seedWelcomeBoardIfFirstRun()
+    installWelcomeBoard13IfNeeded()
     reload()
     ensureCurrent()
   }
@@ -269,11 +283,10 @@ final class DumpStore: ObservableObject {
   }
 
   /// Seed the bundled welcome board the first time the app runs with an empty store, so new users
-  /// land on it. Guarded by a flag so deleting it never brings it back, and so an existing user
-  /// (who already has boards, or a migrated legacy note) never has it injected on a later launch.
+  /// land on it. Guarded by a flag so the first-run seed itself never repeats, and so an existing
+  /// user (who already has boards, or a migrated legacy note) never gets the first-run board later.
   private func seedWelcomeBoardIfFirstRun() {
-    let seededKey = "composer.didSeedWelcomeBoard"
-    guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
+    guard !UserDefaults.standard.bool(forKey: Self.welcomeSeededKey) else { return }
     let existing: Int
     do {
       existing = try context.fetchCount(FetchDescriptor<Dump>())
@@ -283,7 +296,7 @@ final class DumpStore: ObservableObject {
     }
     guard existing == 0, let cards = WelcomeBoard.seedCards() else {
       // Returning user (or unreadable resource): mark seeded so we never inject it later.
-      if existing > 0 { UserDefaults.standard.set(true, forKey: seededKey) }
+      if existing > 0 { UserDefaults.standard.set(true, forKey: Self.welcomeSeededKey) }
       return
     }
     let data: Data
@@ -293,10 +306,57 @@ final class DumpStore: ObservableObject {
       UserFacingError.report(error, while: "Encoding the welcome board")
       return
     }
-    context.insert(Dump(text: Self.titleMirror(for: cards), cardsData: data))
+    context.insert(Dump(text: Self.titleMirror(for: cards), cardsData: data, customTitle: WelcomeBoard.title))
     if save("Saving the welcome board") {
-      UserDefaults.standard.set(true, forKey: seededKey)
+      UserDefaults.standard.set(true, forKey: Self.welcomeSeededKey)
     }
+  }
+
+  /// BonsAI 1.3.0 ships a new welcome canvas. Install it once for every user: replace the old
+  /// bundled welcome board when present, otherwise add the new one without touching user boards.
+  private func installWelcomeBoard13IfNeeded() {
+    guard !UserDefaults.standard.bool(forKey: Self.welcomeBoard13InstalledKey) else { return }
+    guard let cards = WelcomeBoard.seedCards() else { return }
+    let data: Data
+    do {
+      data = try JSONEncoder().encode(cards)
+    } catch {
+      UserFacingError.report(error, while: "Encoding the BonsAI 1.3 welcome board")
+      return
+    }
+
+    let existing: [Dump]
+    do {
+      existing = try context.fetch(FetchDescriptor<Dump>())
+    } catch {
+      UserFacingError.report(error, while: "Checking saved boards for the BonsAI 1.3 welcome board")
+      return
+    }
+
+    if let dump = existing.first(where: isBundledWelcomeBoard) {
+      dump.cardsData = data
+      dump.text = Self.titleMirror(for: cards)
+      dump.customTitle = WelcomeBoard.title
+      dump.updatedAt = Date()
+    } else {
+      context.insert(Dump(text: Self.titleMirror(for: cards), cardsData: data, customTitle: WelcomeBoard.title))
+    }
+
+    if save("Installing the BonsAI 1.3 welcome board") {
+      UserDefaults.standard.set(true, forKey: Self.welcomeBoard13InstalledKey)
+    }
+  }
+
+  private func isBundledWelcomeBoard(_ dump: Dump) -> Bool {
+    if dump.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) == WelcomeBoard.title { return true }
+    guard let cards = decodedCards(for: dump) else { return false }
+    let ids = Set(cards.map(\.id))
+    return ids.intersection(Self.previousWelcomeCardIDs).count >= 3
+  }
+
+  private func decodedCards(for dump: Dump) -> [CardState]? {
+    guard let data = dump.cardsData else { return nil }
+    return try? JSONDecoder().decode([CardState].self, from: data)
   }
 
   private func migrateLegacyNoteIfNeeded() {

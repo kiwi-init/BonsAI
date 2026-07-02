@@ -11,6 +11,69 @@ under the new version heading.
 
 ## [Unreleased]
 
+### Added
+- **A calmer standard window workspace.** BonsAI now opens as one resizable macOS window with the
+  board, Agent, Settings, board switcher, tools, zoom, and grounding controls arranged as floating
+  canvas chrome instead of separate side rails and history panels.
+- **Codex and OpenCode join the streaming agent.** The in-canvas chat agent now runs on Codex
+  (`codex exec --json`) or OpenCode (`opencode run --format json`), not just Claude. Pick one from the
+  new engine chip on the Agent panel's composer row — it appears whenever two or more engines are
+  ready. Each engine reaches the same board over the loopback canvas MCP server, keeps its own session
+  for follow-ups, and streams replies and tool calls into one shared transcript. See
+  `docs/agent-engines.md`.
+- **OpenCode as a one-shot engine.** OpenCode joins Claude and Codex on Refine / Compile,
+  toggleable in **Settings ▸ Runtime ▸ Engines** and gated on the `opencode` binary being installed.
+- **Writing on the canvas feels like writing.** Text cards now live-render Markdown headings, bold,
+  italics, code, quotes, lists, and checkboxes while keeping the plain text source intact for agents.
+  Cards at rest render the formatted version, the selection bar can apply common Markdown actions,
+  and Focus Mode expands the active card into a centered writing sheet.
+- **Themes and element colors.** Appearance settings now offer BonsAI Dark, BonsAI Light,
+  Catppuccin Mocha, and Catppuccin Latte previews. Canvas element colors are theme-relative, so a
+  selected tint follows the active palette instead of hard-coding one color value.
+- **Better drawing controls.** Holding Shift while drawing or resizing rectangles, ellipses, and
+  diamonds constrains them to square/circle/uniform proportions. The bottom color swatch now colors
+  new elements and can retint the current selection.
+- **The linter's clarify escalation follows your chat engine.** The ambiguity popover's escalate
+  button was hardcoded to Claude; it now runs on your resolved **Chat Agent** engine and shows that
+  engine's logo — "Refine with Codex" / "Refine with OpenCode" — so a non-Claude setup no longer
+  silently reaches for Claude (and the row hides when no engine is installed).
+- **Provider + model for the chat agent.** Both **Settings ▸ Models** and the Agent panel now read as
+  *pick a provider, then a model*: Claude keeps its Opus/Sonnet/Haiku tiers; OpenCode lists its live
+  `opencode models` catalog; Codex offers the model from your `~/.codex/config.toml`. Each is passed
+  to the CLI (`--model` / `-m`). Codex now honors your configured model again — the chat runs it with
+  `--ignore-user-config` (to protect canvas MCP startup), which had been dropping it — and the
+  one-shot Codex path gained `--skip-git-repo-check` so Refine / Compile work from any folder.
+
+### Changed
+- **Runs on macOS 14 (Sonoma) and up.** The minimum was lowered from macOS 26 (Tahoe); the board and
+  every core feature work throughout. Tahoe-only extras — the Apple Intelligence semantic linter and
+  screenshot cleanup, plus the Liquid Glass look — stay gated and quietly turn themselves off below
+  macOS 26 or when Apple Intelligence is unavailable, so nothing shows a broken control or a
+  missing-glyph icon on older systems.
+- **The welcome canvas was refreshed for 1.3.0.** New and existing users get the new Welcome Canvas
+  with a smaller bundled image asset that resolves through the app bundle instead of a stale local
+  attachment path.
+
+### Fixed
+- **Canvas MCP registers reliably for strict clients.** The MCP handshake (`initialize` /
+  `tools/list` / `ping`) is now answered off the main thread; only board mutations hop to it. An
+  agent CLI with a short startup handshake window (Codex) no longer intermittently fails to see the
+  canvas tools while the UI is busy.
+- **Newly added engines light up on their own.** The runtime-availability cache used to restore its
+  saved snapshot verbatim, so an engine added in an update (OpenCode) stayed stuck on "Checking…" —
+  invisible to the agent picker and refine bar — until you hit Recheck. It now detects any engine the
+  snapshot doesn't cover on launch.
+- **Japanese and other IME input no longer breaks in the canvas editor.** While composing marked text
+  (Japanese / Chinese / Korean, or dead-key accents), the editor was reformatting the half-composed
+  text and could steal the Return that confirms a candidate, so characters dropped or the wrong
+  reading was committed. Composition is now left untouched until it commits.
+- **Single-click selects text cards again.** Text blocks no longer jump straight into editing on a
+  normal click; single-click selects/moves the card, and double-click enters text editing.
+- **The board switcher no longer fights macOS window controls.** The top-left board picker now sits
+  in its own lane away from the traffic-light hit boxes.
+- **Settings model pickers no longer crush their labels.** The Models row keeps readable copy beside
+  the provider/model menus, and falls back to stacking the controls when the panel is narrow.
+
 ## [1.2.2] - 2026-06-30
 
 ### Added

@@ -43,23 +43,9 @@ struct HeadlessPromptService {
     return try await run(prompt: prompt, engine: engine)
   }
 
-  /// Describe the WHOLE board — text cards, shapes, diagrams, and how they connect — as one
-  /// self-contained, paste-ready brief. `state` is the board graph JSON (the same snapshot the
-  /// canvas MCP `get_canvas` exposes); unlike `compileBoard` (which merges card prose) this reads
-  /// the full graph, so the description covers everything the board holds.
-  func describeBoard(state: String, engine: HeadlessEngine, model: ClaudeModel) async throws -> String {
-    let prompt = """
-    \(BoardDescribe.instruction)
-
-    ===== BOARD STATE (JSON graph: nodes, edges, reading order) =====
-    \(state)
-    """
-    return try await run(prompt: prompt, engine: engine, model: model)
-  }
-
-  /// `model` is optional: when nil the CLI picks its own default (used by Refine / Compile);
-  /// Describe passes the user's chosen `ClaudeModel` so it can run on a different tier.
-  private func run(prompt: String, engine: HeadlessEngine, model: ClaudeModel? = nil) async throws -> String {
+  /// `model` is an optional CLI model id: Claude's alias (`opus`/`sonnet`/`haiku`) via `--model`,
+  /// Codex/OpenCode's `provider/model` via `-m`. nil ⇒ the CLI's own default (used by Refine/Compile).
+  private func run(prompt: String, engine: HeadlessEngine, model: String? = nil) async throws -> String {
     guard let executable = CommandLineToolLocator.executableURL(for: engine) else {
       throw HeadlessPromptError.failed("\(engine.title) CLI is not installed. Check Settings to install or re-detect it.")
     }
@@ -67,11 +53,21 @@ struct HeadlessPromptService {
     switch engine {
     case .claude:
       arguments = [executable.path, "-p", prompt]
-      if let model { arguments += ["--model", model.cliAlias] }
+      if let model { arguments += ["--model", model] }
     case .codex:
-      // Read-only sandbox: one-shot refine/compile must not mutate the user's repo. Codex already
-      // runs read-only; `model` is Claude-only, so Codex ignores it.
-      arguments = [executable.path, "exec", "--sandbox", "read-only", "--ephemeral", prompt]
+      // Read-only sandbox: one-shot refine/compile/describe must not mutate the user's repo. Codex
+      // already runs read-only. `--ephemeral` skips session files (one-shot, no continuity), and
+      // `--skip-git-repo-check` lets it run from any cwd (else it refuses outside a trusted git dir).
+      arguments = [executable.path, "exec", "--sandbox", "read-only", "--ephemeral", "--skip-git-repo-check"]
+      if let model { arguments += ["-m", model] }
+      arguments.append(prompt)
+    case .opencode:
+      // `opencode run` (default format) prints a `> agent · model` header and ANSI codes around the
+      // reply, so its raw stdout isn't paste-ready. Ask for `--format json` and stitch the assistant
+      // text back together below.
+      arguments = [executable.path, "run", "--format", "json"]
+      if let model { arguments += ["-m", model] }
+      arguments.append(prompt)
     }
     let result: Shell.Result
     do {
@@ -79,14 +75,25 @@ struct HeadlessPromptService {
     } catch {
       throw HeadlessPromptError.failed(UserFacingError.message(for: error, while: "Composer could not start \(engine.title)"))
     }
-    let out = result.stdout.trimmed
     guard result.status == 0 else {
       throw HeadlessPromptError.failed(UserFacingError.commandFailure(command: engine.title, result: result))
     }
+    let out = engine == .opencode ? Self.openCodeText(from: result.stdout) : result.stdout.trimmed
     guard !out.isEmpty else {
       throw HeadlessPromptError.failed("\(engine.title) exited successfully but returned no text.")
     }
     return out
+  }
+
+  /// Stitch the assistant text out of `opencode run --format json` output (JSONL). Reuses the same
+  /// parser the streaming chat uses, so the one-shot and streaming paths agree on what "the text" is.
+  static func openCodeText(from stdout: String) -> String {
+    let engine = OpenCodeChatEngine()
+    var pieces: [String] = []
+    for line in stdout.split(separator: "\n", omittingEmptySubsequences: true) {
+      for case let .assistantText(text) in engine.parse(String(line)) { pieces.append(text) }
+    }
+    return pieces.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
   }
 }
 
